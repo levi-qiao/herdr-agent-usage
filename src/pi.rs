@@ -912,6 +912,33 @@ pub(crate) mod test_support {
         (lines, parent)
     }
 
+    /// Filler entries chained from `parent` that take exactly `bytes`,
+    /// newlines included, and the id of the last one.
+    pub(crate) fn filler_exact(prefix: &str, parent: &str, bytes: u64) -> (Vec<String>, String) {
+        let mut lines = Vec::new();
+        let mut parent = parent.to_string();
+        let mut written = 0;
+        while written < bytes {
+            let id = format!("{prefix}{}", lines.len());
+            let bare = filler(&id, &parent, 0).len() as u64 + 1;
+            let remaining = bytes - written;
+            assert!(
+                remaining >= bare,
+                "{remaining} bytes cannot hold a filler entry"
+            );
+            let pad = if remaining - bare > 8192 {
+                4096
+            } else {
+                remaining - bare
+            };
+            let line = filler(&id, &parent, pad as usize);
+            written += line.len() as u64 + 1;
+            lines.push(line);
+            parent = id;
+        }
+        (lines, parent)
+    }
+
     pub(crate) fn jsonl(lines: &[String]) -> String {
         let mut body = lines.join("\n");
         body.push('\n');
@@ -1372,29 +1399,9 @@ mod tests {
             let (head, last) = filler_run("h", "m0", 64 * 1024);
             lines.extend(head);
             let selector = model_change("m1", Some(&last), "anthropic/model-new");
-            let mut tail = selector.len() as i64 + 1;
+            let tail = MAX_SESSION_BYTES as i64 - lead - (selector.len() as i64 + 1);
             lines.push(selector);
-            let target = MAX_SESSION_BYTES as i64 - lead;
-            let mut parent = "m1".to_string();
-            let mut index = 0;
-            loop {
-                let id = format!("t{index}");
-                let remaining = target - tail;
-                let bare = filler(&id, &parent, 0).len() as i64 + 1;
-                let pad = if remaining - bare > 8192 {
-                    4096
-                } else {
-                    (remaining - bare) as usize
-                };
-                let line = filler(&id, &parent, pad);
-                tail += line.len() as i64 + 1;
-                lines.push(line);
-                parent = id;
-                index += 1;
-                if tail == target {
-                    break;
-                }
-            }
+            lines.extend(filler_exact("t", "m1", tail as u64).0);
             let (paths, path) = write_session(root.path(), "session-edge", &lines);
             let expected = if lead >= 0 {
                 SessionLookup::Found(SessionEvidence {
@@ -1405,6 +1412,35 @@ mod tests {
                 SessionLookup::Unreadable
             };
             assert_eq!(lookup_session(&paths, &path), expected, "lead {lead}");
+        }
+    }
+
+    /// A file just past the limit whose newest `MAX_SESSION_BYTES` reach back
+    /// to its header is still read whole: nothing is cut, the first entry after
+    /// the header stays, and the session totals stay complete. One byte more
+    /// and the window cuts that entry, so the totals stop covering the session.
+    #[test]
+    fn a_window_that_reaches_the_header_reads_the_whole_session() {
+        let header_bytes = jsonl(&header("session-edge")).len() as u64;
+        for (over, whole) in [(1, true), (header_bytes, true), (header_bytes + 1, false)] {
+            let root = tempdir().unwrap();
+            let mut lines = header("session-edge");
+            let first = model_change("m0", None, "anthropic/model-a");
+            let reply = assistant("a0", "m0", "anthropic", "model-a", 500);
+            let used = header_bytes + first.len() as u64 + reply.len() as u64 + 2;
+            lines.push(first);
+            lines.push(reply);
+            lines.extend(filler_exact("f", "a0", MAX_SESSION_BYTES + over - used).0);
+            let (paths, path) = write_session(root.path(), "session-edge", &lines);
+            assert_eq!(fs::metadata(&path).unwrap().len(), MAX_SESSION_BYTES + over);
+
+            let parsed = parsed(&paths, &path);
+            assert_eq!(
+                parsed.evidence.model_id.as_deref(),
+                Some("model-a"),
+                "over {over}"
+            );
+            assert_eq!(parsed.usage_totals_cover_session, whole, "over {over}");
         }
     }
 
