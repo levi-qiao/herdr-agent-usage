@@ -351,6 +351,49 @@ mod tests {
         );
     }
 
+    /// Two omp panes on one provider share its quota target but not a model:
+    /// each identity comes from that pane's own transcript, including one long
+    /// enough to be read as a window.
+    #[test]
+    fn omp_panes_on_one_provider_keep_their_own_models() {
+        use crate::pi::test_support::*;
+
+        let dir = tempdir().unwrap();
+        let short = omp_session(dir.path(), "session-anthropic.jsonl");
+        let mut lines = header("session-long");
+        lines.push(model_change("m0", None, "anthropic/model-a"));
+        lines.push(assistant("a0", "m0", "anthropic", "model-a", 900));
+        let (filler, last) = filler_run("f", "a0", crate::pi::MAX_SESSION_BYTES);
+        lines.extend(filler);
+        lines.push(model_change("m1", Some(&last), "anthropic/model-b"));
+        lines.push(assistant("a1", "m1", "anthropic", "model-b", 500));
+        lines.push(pin_entry("p1", "a1", "anthropic", "pin-account-two"));
+        let long = dir
+            .path()
+            .join(".omp/agent/sessions/-workspace/2099-01-02_session-long.jsonl");
+        fs::write(&long, jsonl(&lines)).unwrap();
+        let long = long.to_string_lossy().into_owned();
+
+        let first = resolve_with_identity(&omp_pane(&short));
+        let second = resolve_with_identity(&omp_pane(&long));
+        for resolved in [&first, &second] {
+            assert_eq!(
+                resolved.resolution,
+                Resolution::Subscription(BillingTarget::omp("anthropic"))
+            );
+        }
+        assert_eq!(first.identity.expect("identity").model, "model-a");
+        assert_eq!(second.identity.expect("identity").model, "model-b");
+        assert_eq!(
+            first.omp.expect("evidence").account_pin.as_deref(),
+            Some("pin-account-one")
+        );
+        assert_eq!(
+            second.omp.expect("evidence").account_pin.as_deref(),
+            Some("pin-account-two")
+        );
+    }
+
     /// Every provider omp can name is collected through omp's own usage layer;
     /// the plugin does not need a provider-specific compatibility entry.
     #[test]

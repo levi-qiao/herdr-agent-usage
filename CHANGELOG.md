@@ -18,6 +18,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A long omp or Pi session no longer empties its pane. Both harnesses append
+  one session to one file, and a transcript past 8 MiB was rejected whole, so
+  the pane lost its model, quota, and context at once and rendered a bare
+  icon. A longer transcript is now read as its header plus its newest 8 MiB:
+  the model, account pin, context, and cache activity sit at the end of the
+  active branch, so each pane keeps its own current model. Evidence written
+  before that window is not reported, since a later entry the window does not
+  show may have replaced it, and a long session's cache row shows the latest
+  turn's hit rate without a partial session total.
 - An omp or Pi pane Herdr has no readable session for now says so in the
   sidebar instead of rendering a brand icon with no rows: `restart pane: no
   omp session`, or for a session Herdr has named but the agent has not written

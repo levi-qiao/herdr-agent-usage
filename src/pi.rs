@@ -11,11 +11,16 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+/// Most transcript bytes one lookup parses. A longer transcript is read as its
+/// header plus its newest `MAX_SESSION_BYTES`; see [`read_transcript`].
 pub const MAX_SESSION_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_SESSION_LINE_BYTES: usize = 1024 * 1024;
+/// How far into an oversized transcript its `session` header may sit. omp puts
+/// a padded `title` record first; Pi puts the header on the first line.
+const MAX_SESSION_HEADER_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 1024 * 1024;
 const MAX_MODELS_BYTES: u64 = 8 * 1024 * 1024;
 const SUPPORTED_SESSION_VERSION: u64 = 3;
@@ -187,6 +192,9 @@ pub(crate) struct ParsedSession {
     pub(crate) context_tokens: Option<u64>,
     pub(crate) latest_usage: UsageCounters,
     pub(crate) usage_totals: UsageCounters,
+    /// Whether `usage_totals` counts every entry of the file. A transcript read
+    /// as a window sums only the window, which is not the session's total.
+    pub(crate) usage_totals_cover_session: bool,
     pub(crate) cache_activity: Option<CacheActivity>,
     /// Latest `credential_pin` hash on the active branch, for the provider the
     /// session is talking to. omp writes it; Pi does not.
@@ -237,16 +245,107 @@ pub(crate) fn lookup_session_in(
     parse_session_file(&path)
 }
 
+/// The part of a transcript one lookup parses.
+struct TranscriptBytes {
+    /// The `session` header id, when it was read apart from `lines`.
+    header_id: Option<String>,
+    /// JSONL lines, starting on a line boundary.
+    lines: Vec<u8>,
+    /// Whether `lines` holds every entry of the file.
+    whole: bool,
+}
+
+/// Read a transcript whole, or as its header plus its newest entries.
+///
+/// omp and Pi append one session to one file for its whole life, so a long
+/// session passes `MAX_SESSION_BYTES` and keeps growing. Every current field —
+/// model, context, account pin, cache activity — sits at the end of the active
+/// branch, so the newest `MAX_SESSION_BYTES` hold them; a prefix would hold the
+/// session's first model instead. The window is measured from the length seen
+/// here, so a line appended mid-read waits for the next lookup, and it opens
+/// on a line boundary: a line cut by the window start is dropped, not parsed.
+fn read_transcript(path: &Path) -> Option<TranscriptBytes> {
+    let mut file = File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let len = metadata.len();
+    if len <= MAX_SESSION_BYTES {
+        let mut lines = Vec::new();
+        file.take(len).read_to_end(&mut lines).ok()?;
+        return Some(TranscriptBytes {
+            header_id: None,
+            lines,
+            whole: true,
+        });
+    }
+    let mut head = Vec::new();
+    (&mut file)
+        .take(MAX_SESSION_HEADER_BYTES)
+        .read_to_end(&mut head)
+        .ok()?;
+    let (header_id, header_end) = window_header(&head)?;
+    let start = (len - MAX_SESSION_BYTES).max(header_end);
+    // One byte before the window says whether it opens on a line boundary.
+    let from = if start > header_end { start - 1 } else { start };
+    file.seek(SeekFrom::Start(from)).ok()?;
+    let mut lines = Vec::new();
+    file.take(len - from).read_to_end(&mut lines).ok()?;
+    if start > header_end {
+        let cut = lines.iter().position(|byte| *byte == b'\n')?;
+        lines.drain(..=cut);
+    }
+    Some(TranscriptBytes {
+        header_id: Some(header_id),
+        lines,
+        whole: start == header_end,
+    })
+}
+
+/// The `session` header at the top of an oversized transcript, and the offset
+/// just past its line. Only omp's `title` record may come before it.
+fn window_header(head: &[u8]) -> Option<(String, u64)> {
+    let mut offset = 0;
+    for line in head.split_inclusive(|byte| *byte == b'\n') {
+        let line = line.strip_suffix(b"\n")?;
+        offset += line.len() + 1;
+        if line.is_empty() {
+            continue;
+        }
+        let entry = serde_json::from_slice::<Value>(line).ok()?;
+        match entry.get("type").and_then(Value::as_str) {
+            Some("title") => {}
+            Some("session") => {
+                return Some((session_header_id(&entry)?.to_string(), offset as u64));
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn session_header_id(entry: &Value) -> Option<&str> {
+    (entry.get("version").and_then(Value::as_u64) == Some(SUPPORTED_SESSION_VERSION))
+        .then(|| entry.get("id").and_then(Value::as_str))
+        .flatten()
+        .filter(|id| valid_id(id))
+}
+
 fn parse_session_file(path: &Path) -> DetailedSessionLookup {
-    let bytes = match read_bounded(path, MAX_SESSION_BYTES) {
-        Ok(bytes) => bytes,
-        Err(_) => return DetailedSessionLookup::Unreadable,
+    let Some(TranscriptBytes {
+        header_id: window_header_id,
+        lines: bytes,
+        whole,
+    }) = read_transcript(path)
+    else {
+        return DetailedSessionLookup::Unreadable;
     };
     if bytes.is_empty() || !bytes.ends_with(b"\n") {
         return DetailedSessionLookup::Unreadable;
     }
 
-    let mut header_id = None;
+    let mut header_id = window_header_id;
     let mut entries = Vec::new();
     for line in bytes
         .split(|byte| *byte == b'\n')
@@ -260,17 +359,10 @@ fn parse_session_file(path: &Path) -> DetailedSessionLookup {
         };
         match entry.get("type").and_then(Value::as_str) {
             Some("session") => {
-                if header_id.is_some()
-                    || entry.get("version").and_then(Value::as_u64)
-                        != Some(SUPPORTED_SESSION_VERSION)
-                {
+                if header_id.is_some() {
                     return DetailedSessionLookup::Unreadable;
                 }
-                let Some(id) = entry
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .filter(|id| valid_id(id))
-                else {
+                let Some(id) = session_header_id(&entry) else {
                     return DetailedSessionLookup::Unreadable;
                 };
                 header_id = Some(id.to_string());
@@ -289,7 +381,7 @@ fn parse_session_file(path: &Path) -> DetailedSessionLookup {
     if !filename_matches_session_id(path, &header_id) {
         return DetailedSessionLookup::Unreadable;
     }
-    let Some(branch) = active_branch(&entries) else {
+    let Some(branch) = active_branch(&entries, whole) else {
         return DetailedSessionLookup::Unreadable;
     };
     let Some(evidence) = active_model(&branch) else {
@@ -323,6 +415,7 @@ fn parse_session_file(path: &Path) -> DetailedSessionLookup {
         context_tokens,
         latest_usage,
         usage_totals,
+        usage_totals_cover_session: whole,
         cache_activity,
         credential_pin,
     }))
@@ -343,7 +436,10 @@ fn credential_pin(branch: &[&Value], provider_id: &str) -> Option<String> {
     })
 }
 
-fn active_branch(entries: &[Value]) -> Option<Vec<&Value>> {
+/// Walk from the newest entry to its root. `whole` is false for a transcript
+/// read as a window: a parent written before the window ends the walk there
+/// instead of failing it, and the branch is its newest stretch.
+fn active_branch(entries: &[Value], whole: bool) -> Option<Vec<&Value>> {
     let mut by_id = BTreeMap::new();
     for entry in entries {
         let id = nonempty_string(entry.get("id"))?;
@@ -360,11 +456,22 @@ fn active_branch(entries: &[Value]) -> Option<Vec<&Value>> {
     let mut current = entries.last()?;
     for _ in 0..entries.len() {
         branch.push(current);
-        let Some(parent_id) = current.get("parentId").and_then(Value::as_str) else {
+        let Some(parent) = current
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(|parent_id| by_id.get(parent_id))
+        else {
             branch.reverse();
             return Some(branch);
         };
-        current = *by_id.get(parent_id)?;
+        current = match parent {
+            Some(parent) => parent,
+            None if !whole => {
+                branch.reverse();
+                return Some(branch);
+            }
+            None => return None,
+        };
     }
     None
 }
@@ -650,15 +757,19 @@ pub(crate) fn context_usage(
             parsed.latest_usage.cache_write,
         )
         .map(|cache| {
-            let cache = cache.with_session_totals(
-                CacheTotals::from_token_counts(
-                    parsed.usage_totals.input,
-                    parsed.usage_totals.cache_read,
-                    parsed.usage_totals.cache_write,
-                ),
-                parsed.session_id.clone(),
-                0,
-            );
+            // A window's sum is not the session's total; the latest turn's
+            // hit rate stands alone rather than beside a partial one.
+            let totals = parsed
+                .usage_totals_cover_session
+                .then(|| {
+                    CacheTotals::from_token_counts(
+                        parsed.usage_totals.input,
+                        parsed.usage_totals.cache_read,
+                        parsed.usage_totals.cache_write,
+                    )
+                })
+                .flatten();
+            let cache = cache.with_session_totals(totals, parsed.session_id.clone(), 0);
             if let Some(activity) = parsed.cache_activity {
                 cache.with_ttl_estimate(activity.ttl_seconds, activity.last_activity_unix)
             } else {
@@ -742,8 +853,75 @@ fn filename_matches_session_id(path: &Path, session_id: &str) -> bool {
     stem == session_id || stem.ends_with(&format!("_{session_id}"))
 }
 
+/// Line builders for transcripts too long to keep as fixtures.
+#[cfg(test)]
+pub(crate) mod test_support {
+    /// omp's padded `title` record, then the session header.
+    pub(crate) fn header(session_id: &str) -> Vec<String> {
+        vec![
+            r#"{"type":"title","v":1,"pad":"                "}"#.to_string(),
+            format!(r#"{{"type":"session","version":3,"id":"{session_id}","cwd":"/workspace"}}"#),
+        ]
+    }
+
+    pub(crate) fn model_change(id: &str, parent: Option<&str>, selector: &str) -> String {
+        let parent = parent.map_or("null".to_string(), |parent| format!(r#""{parent}""#));
+        format!(
+            r#"{{"type":"model_change","id":"{id}","parentId":{parent},"model":"{selector}","role":"default"}}"#
+        )
+    }
+
+    pub(crate) fn assistant(
+        id: &str,
+        parent: &str,
+        provider: &str,
+        model: &str,
+        context_tokens: u64,
+    ) -> String {
+        format!(
+            r#"{{"type":"message","id":"{id}","parentId":"{parent}","message":{{"role":"assistant","provider":"{provider}","model":"{model}","stopReason":"stop","timestamp":1788224455470,"usage":{{"input":100,"output":10,"cacheRead":400,"cacheWrite":0,"contextTokens":{context_tokens}}}}}}}"#
+        )
+    }
+
+    pub(crate) fn pin_entry(id: &str, parent: &str, provider: &str, hash: &str) -> String {
+        format!(
+            r#"{{"type":"credential_pin","id":"{id}","parentId":"{parent}","provider":"{provider}","hash":"{hash}"}}"#
+        )
+    }
+
+    pub(crate) fn filler(id: &str, parent: &str, pad: usize) -> String {
+        format!(
+            r#"{{"type":"custom","customType":"tool_execution_start","data":{{"pad":"{}"}},"id":"{id}","parentId":"{parent}"}}"#,
+            "x".repeat(pad)
+        )
+    }
+
+    /// Filler entries chained from `parent` until they pass `bytes`, and the
+    /// id of the last one.
+    pub(crate) fn filler_run(prefix: &str, parent: &str, bytes: u64) -> (Vec<String>, String) {
+        let mut lines = Vec::new();
+        let mut parent = parent.to_string();
+        let mut written = 0;
+        while written <= bytes {
+            let id = format!("{prefix}{}", lines.len());
+            let line = filler(&id, &parent, 4096);
+            written += line.len() as u64 + 1;
+            lines.push(line);
+            parent = id;
+        }
+        (lines, parent)
+    }
+
+    pub(crate) fn jsonl(lines: &[String]) -> String {
+        let mut body = lines.join("\n");
+        body.push('\n');
+        body
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::*;
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;
@@ -836,7 +1014,7 @@ mod tests {
             serde_json::json!({"type":"model_change","id":"abandoned","parentId":"root","provider":"xai","modelId":"model-x"}),
             serde_json::json!({"type":"message","id":"active","parentId":"root","message":{"role":"assistant","provider":"openai-codex","model":"model-b","stopReason":"stop","usage":{"input":25,"output":5,"cacheRead":70,"cacheWrite":0,"totalTokens":100}}}),
         ];
-        let branch = active_branch(&entries).unwrap();
+        let branch = active_branch(&entries, true).unwrap();
         assert_eq!(
             active_model(&branch),
             Some(SessionEvidence {
@@ -854,12 +1032,12 @@ mod tests {
             serde_json::json!({"type":"compaction","id":"compact","parentId":"before","usage":{"input":10,"output":2,"cacheRead":0,"cacheWrite":0,"totalTokens":12}}),
             serde_json::json!({"type":"message","id":"failed","parentId":"compact","message":{"role":"assistant","provider":"openai-codex","model":"model-a","stopReason":"error","usage":{"totalTokens":25}}}),
         ];
-        let branch = active_branch(&entries).unwrap();
+        let branch = active_branch(&entries, true).unwrap();
         assert_eq!(context_tokens(&branch), None);
 
         let mut completed = entries;
         completed.push(serde_json::json!({"type":"message","id":"after","parentId":"failed","message":{"role":"assistant","provider":"openai-codex","model":"model-a","stopReason":"stop","usage":{"input":20,"output":5,"cacheRead":80,"cacheWrite":0,"totalTokens":105}}}));
-        let branch = active_branch(&completed).unwrap();
+        let branch = active_branch(&completed, true).unwrap();
         assert_eq!(context_tokens(&branch), Some(105));
     }
 
@@ -869,7 +1047,7 @@ mod tests {
             serde_json::json!({"type":"message","id":"write","parentId":null,"message":{"role":"assistant","provider":"anthropic","model":"model-a","stopReason":"stop","timestamp":1_700_000_000_000_u64,"usage":{"cacheRead":0,"cacheWrite":100,"cacheWrite1h":100,"totalTokens":100}}}),
             serde_json::json!({"type":"message","id":"read","parentId":"write","message":{"role":"assistant","provider":"anthropic","model":"model-a","stopReason":"stop","timestamp":1_700_000_060_000_u64,"usage":{"cacheRead":100,"cacheWrite":0,"cacheWrite1h":0,"totalTokens":100}}}),
         ];
-        let branch = active_branch(&entries).unwrap();
+        let branch = active_branch(&entries, true).unwrap();
         let activity = cache_activity(&branch, "anthropic").unwrap();
         assert_eq!(activity.ttl_seconds, 60 * 60);
         assert_eq!(activity.last_activity_unix, 1_700_000_060);
@@ -878,7 +1056,7 @@ mod tests {
         let short = vec![
             serde_json::json!({"type":"message","id":"write","parentId":null,"message":{"role":"assistant","provider":"anthropic","model":"model-a","stopReason":"stop","timestamp":1_700_000_000_000_u64,"usage":{"cacheRead":0,"cacheWrite":100,"cacheWrite1h":0,"totalTokens":100}}}),
         ];
-        let branch = active_branch(&short).unwrap();
+        let branch = active_branch(&short, true).unwrap();
         assert_eq!(
             cache_activity(&branch, "anthropic").unwrap().ttl_seconds,
             5 * 60
@@ -891,7 +1069,7 @@ mod tests {
             serde_json::json!({"type":"message","id":"first","parentId":null,"message":{"role":"assistant","provider":"openai-codex","model":"model-a","stopReason":"stop","timestamp":1_700_000_000_000_u64,"usage":{"cacheRead":0,"cacheWrite":0,"totalTokens":100}}}),
             serde_json::json!({"type":"message","id":"cached","parentId":"first","message":{"role":"assistant","provider":"openai-codex","model":"model-a","stopReason":"stop","timestamp":1_700_000_060_000_u64,"usage":{"cacheRead":800,"cacheWrite":0,"totalTokens":900}}}),
         ];
-        let branch = active_branch(&entries).unwrap();
+        let branch = active_branch(&entries, true).unwrap();
         let activity = cache_activity(&branch, "openai-codex").unwrap();
         assert_eq!(
             activity.ttl_seconds,
@@ -900,7 +1078,7 @@ mod tests {
         assert_eq!(activity.last_activity_unix, 1_700_000_060);
 
         let cold = vec![entries[0].clone()];
-        let branch = active_branch(&cold).unwrap();
+        let branch = active_branch(&cold, true).unwrap();
         assert!(cache_activity(&branch, "openai-codex").is_none());
     }
 
@@ -1064,7 +1242,7 @@ mod tests {
     }
 
     #[test]
-    fn total_session_read_is_bounded() {
+    fn an_oversized_transcript_without_a_leading_header_is_unreadable() {
         let root = tempdir().unwrap();
         let (paths, path) = install_fixture(root.path(), "session-codex.jsonl", "session-codex");
         let oversized = path.with_file_name("2026-08-29T00-00-00-000Z_session-huge.jsonl");
@@ -1074,5 +1252,173 @@ mod tests {
             lookup_session(&paths, &oversized),
             SessionLookup::Unreadable
         );
+
+        // An entry before the header is not a shape either harness writes.
+        let mut lines = vec![model_change("m0", None, "anthropic/model-a")];
+        lines.extend(header("session-late"));
+        let (filler, last) = filler_run("f", "m0", MAX_SESSION_BYTES);
+        lines.extend(filler);
+        lines.push(assistant("a1", &last, "anthropic", "model-a", 500));
+        let (paths, path) = write_session(root.path(), "session-late", &lines);
+        assert_eq!(lookup_session(&paths, &path), SessionLookup::Unreadable);
+    }
+
+    fn write_session(root: &Path, session_id: &str, lines: &[String]) -> (PiPaths, PathBuf) {
+        let agent = root.join("agent");
+        let sessions = root.join("sessions/project");
+        fs::create_dir_all(&sessions).unwrap();
+        fs::create_dir_all(&agent).unwrap();
+        let path = sessions.join(format!("2026-08-29T00-00-00-000Z_{session_id}.jsonl"));
+        fs::write(&path, jsonl(lines)).unwrap();
+        (PiPaths::from_dirs(agent, root.join("sessions")), path)
+    }
+
+    fn parsed(paths: &PiPaths, path: &Path) -> ParsedSession {
+        match lookup_session_in(&paths.sessions, path) {
+            DetailedSessionLookup::Found(parsed) => *parsed,
+            _ => panic!("expected a readable session"),
+        }
+    }
+
+    /// A long session is read from its end: the model, account pin, and
+    /// context a pane shows are its newest, never the ones it started with.
+    #[test]
+    fn an_oversized_transcript_reports_its_newest_turn() {
+        let root = tempdir().unwrap();
+        let mut lines = header("session-long");
+        lines.push(model_change("m0", None, "anthropic/model-old"));
+        lines.push(assistant("a0", "m0", "anthropic", "model-old", 900));
+        lines.push(pin_entry("p0", "a0", "anthropic", "pin-old"));
+        let (filler, last) = filler_run("f", "p0", MAX_SESSION_BYTES);
+        lines.extend(filler);
+        lines.push(model_change("m1", Some(&last), "anthropic/model-new"));
+        lines.push(assistant("a1", "m1", "anthropic", "model-new", 500));
+        lines.push(pin_entry("p1", "a1", "anthropic", "pin-new"));
+        let (paths, path) = write_session(root.path(), "session-long", &lines);
+        assert!(fs::metadata(&path).unwrap().len() > MAX_SESSION_BYTES);
+
+        let parsed = parsed(&paths, &path);
+        assert_eq!(
+            parsed.evidence,
+            SessionEvidence {
+                provider_id: "anthropic".to_string(),
+                model_id: Some("model-new".to_string()),
+            }
+        );
+        assert_eq!(parsed.session_id, "session-long");
+        assert_eq!(parsed.message_provider_id.as_deref(), Some("anthropic"));
+        assert_eq!(parsed.credential_pin.as_deref(), Some("pin-new"));
+        assert_eq!(parsed.context_tokens, Some(500));
+        assert!(!parsed.usage_totals_cover_session);
+        // The window's sum is not the session's total, so the latest turn's
+        // cache is published without one.
+        let cache = context_usage(&parsed, 500, 200_000)
+            .and_then(|context| context.cache)
+            .expect("cache");
+        assert!(cache.session_totals.is_none());
+    }
+
+    /// The same shape within the limit is read whole and keeps its totals.
+    #[test]
+    fn a_whole_transcript_keeps_its_session_cache_totals() {
+        let root = tempdir().unwrap();
+        let mut lines = header("session-short");
+        lines.push(model_change("m0", None, "anthropic/model-a"));
+        lines.push(assistant("a0", "m0", "anthropic", "model-a", 500));
+        let (paths, path) = write_session(root.path(), "session-short", &lines);
+
+        let parsed = parsed(&paths, &path);
+        assert!(parsed.usage_totals_cover_session);
+        let cache = context_usage(&parsed, 500, 200_000)
+            .and_then(|context| context.cache)
+            .expect("cache");
+        assert!(cache.session_totals.is_some());
+    }
+
+    /// Only the window is evidence. A model or pin written before it may have
+    /// been replaced by one the window does not show, so neither is reported.
+    #[test]
+    fn an_oversized_transcript_reports_nothing_from_before_its_window() {
+        let root = tempdir().unwrap();
+        let mut stale = header("session-stale");
+        stale.push(model_change("m0", None, "anthropic/model-old"));
+        stale.push(assistant("a0", "m0", "anthropic", "model-old", 900));
+        stale.push(pin_entry("p0", "a0", "anthropic", "pin-old"));
+        let (filler, last) = filler_run("f", "p0", MAX_SESSION_BYTES);
+        stale.extend(filler);
+
+        let (paths, path) = write_session(root.path(), "session-stale", &stale);
+        assert_eq!(lookup_session(&paths, &path), SessionLookup::Unreadable);
+
+        let mut pinned_earlier = stale.clone();
+        pinned_earlier[1] = header("session-pinned").remove(1);
+        pinned_earlier.push(assistant("a1", &last, "anthropic", "model-new", 500));
+        let (paths, path) = write_session(root.path(), "session-pinned", &pinned_earlier);
+        let parsed = parsed(&paths, &path);
+        assert_eq!(parsed.evidence.model_id.as_deref(), Some("model-new"));
+        assert_eq!(parsed.credential_pin, None);
+    }
+
+    /// The window opens on a line boundary whichever byte it starts at: the
+    /// line it starts exactly on is kept, and a line it cuts is dropped.
+    #[test]
+    fn the_window_keeps_the_line_it_starts_on_and_drops_a_line_it_cuts() {
+        // How far before the model_change line the window starts; -1 is one
+        // byte inside it.
+        for lead in [-1_i64, 0, 1, 40] {
+            let root = tempdir().unwrap();
+            let mut lines = header("session-edge");
+            lines.push(model_change("m0", None, "anthropic/model-old"));
+            let (head, last) = filler_run("h", "m0", 64 * 1024);
+            lines.extend(head);
+            let selector = model_change("m1", Some(&last), "anthropic/model-new");
+            let mut tail = selector.len() as i64 + 1;
+            lines.push(selector);
+            let target = MAX_SESSION_BYTES as i64 - lead;
+            let mut parent = "m1".to_string();
+            let mut index = 0;
+            loop {
+                let id = format!("t{index}");
+                let remaining = target - tail;
+                let bare = filler(&id, &parent, 0).len() as i64 + 1;
+                let pad = if remaining - bare > 8192 {
+                    4096
+                } else {
+                    (remaining - bare) as usize
+                };
+                let line = filler(&id, &parent, pad);
+                tail += line.len() as i64 + 1;
+                lines.push(line);
+                parent = id;
+                index += 1;
+                if tail == target {
+                    break;
+                }
+            }
+            let (paths, path) = write_session(root.path(), "session-edge", &lines);
+            let expected = if lead >= 0 {
+                SessionLookup::Found(SessionEvidence {
+                    provider_id: "anthropic".to_string(),
+                    model_id: Some("model-new".to_string()),
+                })
+            } else {
+                SessionLookup::Unreadable
+            };
+            assert_eq!(lookup_session(&paths, &path), expected, "lead {lead}");
+        }
+    }
+
+    /// A second header is corruption in a window just as in a whole file.
+    #[test]
+    fn a_second_header_inside_the_window_is_unreadable() {
+        let root = tempdir().unwrap();
+        let mut lines = header("session-twice");
+        lines.push(model_change("m0", None, "anthropic/model-a"));
+        let (filler, last) = filler_run("f", "m0", MAX_SESSION_BYTES);
+        lines.extend(filler);
+        lines.push(header("session-twice").remove(1));
+        lines.push(assistant("a1", &last, "anthropic", "model-a", 500));
+        let (paths, path) = write_session(root.path(), "session-twice", &lines);
+        assert_eq!(lookup_session(&paths, &path), SessionLookup::Unreadable);
     }
 }
