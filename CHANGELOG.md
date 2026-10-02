@@ -73,6 +73,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   login) share a row when the same omp profile served both from the same
   stored credential. Each assistant message names that credential, so tabs on
   one key no longer stand alone; two profiles never share a row this way.
+- A tab nested under a vendor head no longer jumps above that head when it
+  reports new quota. The group's sort key carries the tightest headroom among
+  its members, and an event that named one tab rewrote only that tab's key: the
+  head kept the old one, and the tab sorted above its own header with nothing
+  to show which account it belonged to. Every member whose key moved is now
+  republished in the same pass; unchanged members are not written.
 
 - Closing a tab, moving it to another Space, quitting its agent, or starting a
   different agent in it no longer leaves the tabs behind it nested under a

@@ -1621,6 +1621,14 @@ fn vendor_icon_status(nesting: &VendorNesting, pane: &AgentPane, role: VendorRow
     }
 }
 
+pub(crate) fn vendor_stack_keys(
+    inventory: &[AgentPane],
+    tokens: &[PaneTokens],
+    order: PanelOrder,
+) -> BTreeMap<String, String> {
+    vendor_nesting(inventory, inventory, tokens, order).stack
+}
+
 fn vendor_nesting(
     inventory: &[AgentPane],
     overlay: &[AgentPane],
