@@ -35,6 +35,7 @@ pub fn for_harness(harness: Harness) -> &'static str {
         Harness::Devin => "\u{e1b5}",
         // Not in HerdrAgentIconsMax; keep a plain mark rather than a tofu.
         Harness::Muse => "◈",
+        Harness::Kimi => "◐",
     }
 }
 

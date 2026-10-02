@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Kimi Code.** A Kimi pane gets a sidebar row: model, last prompt as the
+  topic, context and cache from the session's own `wire.jsonl`, and the 5h and
+  7d windows from the `/coding/v1/usages` call Kimi's `/usage` panel makes.
+  Previously a Kimi pane published no tokens at all and its sidebar row was
+  empty.
 - **Kilo Code.** A Kilo pane gets a sidebar row like any other agent: the
   context its session occupies, and the account's Kilo Pass allowance.
   Kilo publishes no 5h or 7h bucket for the Kilo Gateway — its subscription is

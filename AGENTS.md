@@ -323,6 +323,31 @@ shortcut — Kilo computes it as input+output on 7291 of 9475 step rows and as
 input+output+reasoning on the other 2185, so it means different things in
 different versions.
 
+## Kimi's quota is the CLI's own `/usages` call
+
+Kimi Code (the Node CLI in `~/.kimi-code`, or `$KIMI_CODE_HOME`) has a Herdr
+integration, so its panes arrive with a `session_<uuid>` id. Quota is
+`GET https://api.kimi.com/coding/v1/usages` with the `access_token` from
+`credentials/kimi-code.json` — the call behind the CLI's `/usage` panel. The
+host is pinned. The token is never refreshed here: Kimi rotates its refresh
+token on use, so a second refresher would sign the CLI out. An expired token
+is a failed fetch and keeps the last good snapshot.
+
+`limits[]` entries carry their own `window.duration`/`timeUnit`; only one that
+measures exactly 5h or 7d fills that slot. The top-level `usage` is the weekly
+allowance. Counts arrive as strings. Both `limit` and `used` (or `remaining`)
+are required. The cache identity is `sha256("kimi\0" || user_id)` from the
+access token's claims, so a rotation keeps the reading and another login
+cannot inherit it.
+
+Session fields never come from the pane: `session_index.jsonl` maps the id to
+its directory (only under `<home>/sessions`), `state.json` `lastPrompt` is the
+topic, and the bounded tail of `agents/main/wire.jsonl` gives the model alias
+(`llm.request`), the token split (`usage.record`), and the measured context
+(`token_counting.*`). `config.toml` `[models."<alias>"]` maps the alias to
+`display_name` and `max_context_size`. Kimi publishes no prompt-cache
+lifetime, so there is no TTL.
+
 ## Herdr state this plugin owns outside a pane
 
 Two things reach past the pane metadata, and both are global to the Herdr
@@ -452,7 +477,7 @@ Wiring the new name is not enough. Also:
    `ProviderSelection`, the fetch path, and a cache identity. If Herdr has
    no integration for it, `integration_id` returns `None` (Agy, Muse).
 5. If its own transcript is the evidence, `event` must not read the pane
-   (Pi, omp, Muse, Cursor).
+   (Pi, omp, Muse, Cursor, Kimi).
 6. Tests that name agents must walk `SUPPORTED`, not a copied list. A copied
    list is how Muse missed the watcher-alive check and the "installs
    everything" sidebar assertions.

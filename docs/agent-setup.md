@@ -78,7 +78,7 @@ tokens, not every alias you saw.
 | `kilo` | `kilo` | `~/.local/share/kilo` |
 
 Supported set (append-only; do not reorder):
-`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo`.
+`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo,kimi`.
 
 If nothing matches, install **all** and say so. Prefer the detected subset:
 `configure` writes Claude/Agy `statusLine` entries and Cursor hooks only for
