@@ -2896,6 +2896,7 @@ mod tests {
                 },
                 provider_id: "anthropic".to_string(),
                 account_pin: Some(pin.to_string()),
+                credential_id: None,
             };
             let update = omp_quota_with_refresh(
                 &cache,
@@ -3107,7 +3108,7 @@ mod tests {
     }
 
     #[test]
-    fn opencode_go_and_opencode_share_one_vendor_row() {
+    fn opencode_panes_without_a_resolved_payer_keep_their_own_rows() {
         let mut go = quota_tokens("w1:p1", "OpenCode Go", Some(40));
         go.identity = Some(crate::herdr::PaneIdentity {
             provider: "OpenCode Go".to_string(),
@@ -3121,7 +3122,7 @@ mod tests {
         panes[1].focused = true;
         mark_one_quota_row_per_vendor(&mut tokens, &panes, PanelOrder::Quota);
         assert!(tokens[0].show_account_quota);
-        assert!(!tokens[1].show_account_quota);
+        assert!(tokens[1].show_account_quota);
     }
 
     #[test]
@@ -3521,6 +3522,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3555,6 +3557,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3594,6 +3597,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3643,6 +3647,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,

@@ -65,6 +65,7 @@ pub struct OmpEvidence {
     pub provider_id: String,
     /// `credential_pin` hash of the serving account, when omp recorded one.
     pub account_pin: Option<String>,
+    pub credential_id: Option<String>,
 }
 
 pub(crate) struct OmpRoute {
@@ -151,6 +152,7 @@ pub(crate) fn resolve_with_session(
         paths,
         provider_id: session.provider_id.clone(),
         account_pin: parsed.credential_pin.clone(),
+        credential_id: parsed.credential_id.clone(),
     };
     // Which subscription is paying, and whether there is one at all, is a
     // question for the credential pool, not the transcript. `refresh` asks
