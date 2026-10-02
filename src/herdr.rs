@@ -1621,6 +1621,14 @@ fn vendor_icon_status(nesting: &VendorNesting, pane: &AgentPane, role: VendorRow
     }
 }
 
+pub(crate) fn vendor_stack_keys(
+    inventory: &[AgentPane],
+    tokens: &[PaneTokens],
+    order: PanelOrder,
+) -> BTreeMap<String, String> {
+    vendor_nesting(inventory, inventory, tokens, order).stack
+}
+
 fn vendor_nesting(
     inventory: &[AgentPane],
     overlay: &[AgentPane],
@@ -1823,17 +1831,14 @@ impl PayerEvidence {
 fn quota_scope(pane: &AgentPane, evidence: &PayerEvidence) -> Option<String> {
     match pane.harness {
         // Each collector reads the one login on this machine.
-        Harness::Grok
-        | Harness::Codex
-        | Harness::Devin
-        | Harness::OpenCode
-        | Harness::Cursor
-        | Harness::Muse => Some(String::new()),
+        Harness::Grok | Harness::Codex | Harness::Devin | Harness::Cursor | Harness::Muse => {
+            Some(String::new())
+        }
         // Its statusLine names no account; the hook's stamp does.
         Harness::Claude => evidence.claude_account(pane.session.as_ref()?.id()?),
         // Its statusLine names no account, and nothing stamps one.
         Harness::Agy => None,
-        Harness::Omp | Harness::Pi | Harness::Kilo => {
+        Harness::Omp | Harness::Pi | Harness::Kilo | Harness::OpenCode => {
             pane.session.as_ref()?;
             memoized_scope(pane, session_quota_scope)
         }
@@ -1844,18 +1849,19 @@ fn session_quota_scope(pane: &AgentPane) -> Option<String> {
     if pane.harness == Harness::Omp {
         let path = pane.session.as_ref()?.path()?;
         let route = crate::omp::resolve_with_session(Some(path), |_, _| None);
-        // Without a `credential_pin` nothing names the account: two such
-        // sessions can be two logins or two omp profiles. A pin also drops
-        // out once a long transcript is read from its end, and the pane
-        // then keeps its own row.
         return matches!(route.resolution, crate::model::Resolution::Subscription(_))
             .then_some(route.evidence?)
-            .and_then(|evidence| {
-                Some(format!(
-                    "{}\0{}",
-                    evidence.provider_id, evidence.account_pin?
-                ))
-            });
+            .and_then(
+                |evidence| match (evidence.account_pin, evidence.credential_id) {
+                    (Some(pin), _) => Some(format!("{}\0{pin}", evidence.provider_id)),
+                    (None, Some(credential)) => Some(format!(
+                        "{}\0{}\0{credential}",
+                        evidence.provider_id,
+                        evidence.paths.agent_dir.display()
+                    )),
+                    (None, None) => None,
+                },
+            );
     }
     match crate::route::resolve(pane) {
         crate::model::Resolution::Subscription(target) => Some(target.cache_identity()),

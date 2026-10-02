@@ -199,6 +199,7 @@ pub(crate) struct ParsedSession {
     /// Latest `credential_pin` hash on the active branch, for the provider the
     /// session is talking to. omp writes it; Pi does not.
     pub(crate) credential_pin: Option<String>,
+    pub(crate) credential_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -397,6 +398,7 @@ fn parse_session_file(path: &Path) -> DetailedSessionLookup {
     let context_tokens = context_tokens(&branch);
     let cache_activity = cache_activity(&branch, &evidence.provider_id);
     let credential_pin = credential_pin(&branch, &evidence.provider_id);
+    let credential_id = serving_credential(&branch, &evidence.provider_id);
     let latest_usage = branch
         .iter()
         .rev()
@@ -418,7 +420,23 @@ fn parse_session_file(path: &Path) -> DetailedSessionLookup {
         usage_totals_cover_session: whole,
         cache_activity,
         credential_pin,
+        credential_id,
     }))
+}
+
+fn serving_credential(branch: &[&Value], provider_id: &str) -> Option<String> {
+    branch.iter().rev().find_map(|entry| {
+        (entry.get("type").and_then(Value::as_str) == Some("message")
+            && entry.pointer("/message/role").and_then(Value::as_str) == Some("assistant")
+            && entry.pointer("/message/provider").and_then(Value::as_str) == Some(provider_id))
+        .then(|| {
+            entry
+                .pointer("/message/credentialId")
+                .and_then(Value::as_u64)
+        })
+        .flatten()
+        .map(|id| id.to_string())
+    })
 }
 
 /// Latest account pin recorded for `provider_id` on the active branch.

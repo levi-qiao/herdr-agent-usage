@@ -26,11 +26,13 @@ Herdr endpoint's sidebar — indent and scrollbar included.
 Empty fields collapse; percentages can show remaining or used quota. Cache and
 TTL are off by default (turn them on in settings if you want them). Tabs that
 draw on the same quota keep every tab visible in the Agent panel; duplicate
-5h/7d/30d rows collapse to one pane per Space. Grok, Codex, Devin, OpenCode,
-Cursor, and Muse share by vendor; Claude by the account of the session's
-`CLAUDE_CONFIG_DIR` profile; omp, Pi, and Kilo by the account their session
-bills. A tab whose payer cannot be proven keeps its own row, and so does every
-Agy tab. Under Herdr's own agent order only adjacent tabs share a row. On a
+5h/7d/30d rows collapse to one pane per Space. Grok, Codex, Devin, Cursor,
+and Muse share by vendor; Claude by the account of the session's
+`CLAUDE_CONFIG_DIR` profile; omp, Pi, Kilo, and OpenCode by the account their
+session bills (omp by its credential pin, else by the profile and stored
+credential that served the session). A tab whose payer cannot be proven keeps
+its own row, and so does every Agy tab. Under Herdr's own agent order only
+adjacent tabs share a row. On a
 wide sidebar, the vendor icon and name sit above that pane's quota, and extra
 tabs list model, topic, and context with no icon. A settings row gap of 1 still
 separates different agents; nested extra tabs of the same vendor stay flush.
@@ -209,7 +211,7 @@ normal quota percentage instead of guessing.
 | Cursor | CLI DashboardService usage; at, api, and 30d | Current CLI `auth.json`, else the macOS Keychain login from `cursor-agent login`, else `$CURSOR_STATE_DB` (`state.vscdb` access token) when the CLI has no login; model from local session files; topic from the generated session title; `cx` from `store.db` `token_details` (the CLI footer percent); cache from CLI hooks |
 | Claude Code | StatusLine; 5h and 7d | Exact session observation |
 | Agy / Antigravity | StatusLine; 5h, 7d, and api (third-party pool on Gemini) | Exact session and identifiable model pool |
-| OpenCode | OpenCode console Go meters; per-key usage endpoint as fallback | Console login stored by OpenCode (its `credential` table); fallback is the Go API key |
+| OpenCode | OpenCode console Go meters; per-key usage endpoint as fallback | The active console login stored by OpenCode (its `credential` table), which also proves a Go session without a key; fallback is the Go API key |
 | Pi | Canonical Codex quota | Only when the recorded account matches |
 | OMP | `omp usage --json --provider <id>` | Reported account matching the session's credential pin |
 | Kilo Code | Kilo Pass account state (`kiloPass.getState`); 30d | The OAuth gateway login in Kilo's `auth.json`, and only for a session whose backend is the Kilo Gateway; context from that session's messages and Kilo's model catalog |

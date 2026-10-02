@@ -4,8 +4,8 @@ use crate::herdr::{
     current_focused_pane, find_agent_icon_panes, find_agent_pane, focused_pane_in_snapshot,
     list_agent_panes, list_agent_state, plugin_quota_present, publish_icon_tokens,
     publish_pane_tokens, publish_pane_tokens_with_scrolled_icons, publish_status_icons,
-    refresh_pane_topic, AgentPane, AgentStatus, PaneQuotaUpdate, PaneTokens, PanelOrder,
-    PayerEvidence, QuotaGroups,
+    refresh_pane_topic, vendor_stack_keys, AgentPane, AgentStatus, PaneQuotaUpdate, PaneTokens,
+    PanelOrder, PayerEvidence, QuotaGroups, STACK_TOKEN,
 };
 use crate::model::{
     BillingTarget, CredentialScope, Harness, Provider, ProviderSnapshot, Resolution,
@@ -1673,6 +1673,7 @@ fn vendor_row_sync_extras(
     order: PanelOrder,
 ) -> Vec<PaneTokens> {
     let groups = QuotaGroups::new(inventory, order, &PayerEvidence::from_cache());
+    let stack = vendor_stack_keys(inventory, tokens, order);
     let published = tokens
         .iter()
         .map(|token| token.pane_id.as_str())
@@ -1691,12 +1692,15 @@ fn vendor_row_sync_extras(
         })
         .filter_map(|pane| {
             let should_show = groups.head(&pane.pane_id) == Some(pane.pane_id.as_str());
-            pane_needs_vendor_restyle(pane, &groups, should_show).then(|| PaneTokens {
-                pane_id: pane.pane_id.clone(),
-                quota: PaneQuotaUpdate::Preserve,
-                identity: None,
-                context: None,
-                show_account_quota: should_show,
+            let stack_moved = stack.get(&pane.pane_id) != pane.tokens.get(STACK_TOKEN);
+            (stack_moved || pane_needs_vendor_restyle(pane, &groups, should_show)).then(|| {
+                PaneTokens {
+                    pane_id: pane.pane_id.clone(),
+                    quota: PaneQuotaUpdate::Preserve,
+                    identity: None,
+                    context: None,
+                    show_account_quota: should_show,
+                }
             })
         })
         .collect()
@@ -2896,6 +2900,7 @@ mod tests {
                 },
                 provider_id: "anthropic".to_string(),
                 account_pin: Some(pin.to_string()),
+                credential_id: None,
             };
             let update = omp_quota_with_refresh(
                 &cache,
@@ -3107,7 +3112,7 @@ mod tests {
     }
 
     #[test]
-    fn opencode_go_and_opencode_share_one_vendor_row() {
+    fn opencode_panes_without_a_resolved_payer_keep_their_own_rows() {
         let mut go = quota_tokens("w1:p1", "OpenCode Go", Some(40));
         go.identity = Some(crate::herdr::PaneIdentity {
             provider: "OpenCode Go".to_string(),
@@ -3121,7 +3126,7 @@ mod tests {
         panes[1].focused = true;
         mark_one_quota_row_per_vendor(&mut tokens, &panes, PanelOrder::Quota);
         assert!(tokens[0].show_account_quota);
-        assert!(!tokens[1].show_account_quota);
+        assert!(tokens[1].show_account_quota);
     }
 
     #[test]
@@ -3189,11 +3194,46 @@ mod tests {
         child.workspace_id = "w5".to_string();
         child.focused = true;
         let tokens = vec![quota_tokens("w5:pD", "Grok", Some(54))];
+        let stack = vendor_stack_keys(&[head.clone(), child.clone()], &tokens, PanelOrder::Quota);
+        head.tokens
+            .insert(STACK_TOKEN.to_string(), stack["w5:pA"].clone());
         let extras = vendor_row_sync_extras(&tokens, &[head, child], PanelOrder::Quota);
         assert!(
             extras.iter().all(|extra| extra.pane_id != "w5:pA"),
             "share tokens already count as account windows: {extras:?}"
         );
+    }
+
+    #[test]
+    fn a_nested_head_is_queued_when_a_child_event_moves_its_stack() {
+        let mut head = test_pane("w5:pA", Harness::Grok);
+        head.workspace_id = "w5".to_string();
+        head.tokens.insert(
+            "quota_share_week_inline_normal".to_string(),
+            "7d 54%".to_string(),
+        );
+        head.tokens
+            .insert("quota_headroom".to_string(), "054".to_string());
+        let mut child = test_pane("w5:pD", Harness::Grok);
+        child.workspace_id = "w5".to_string();
+        child.focused = true;
+        let before = vec![quota_tokens("w5:pD", "Grok", Some(54))];
+        let settled = vendor_stack_keys(&[head.clone(), child.clone()], &before, PanelOrder::Quota);
+        head.tokens
+            .insert(STACK_TOKEN.to_string(), settled["w5:pA"].clone());
+        assert!(
+            vendor_row_sync_extras(&before, &[head.clone(), child.clone()], PanelOrder::Quota)
+                .is_empty()
+        );
+
+        let after = vec![quota_tokens("w5:pD", "Grok", Some(34))];
+        let moved = vendor_stack_keys(&[head.clone(), child.clone()], &after, PanelOrder::Quota);
+        assert!(moved["w5:pD"] < settled["w5:pA"], "{moved:?} {settled:?}");
+        let extras = vendor_row_sync_extras(&after, &[head, child], PanelOrder::Quota);
+        assert_eq!(extras.len(), 1, "{extras:?}");
+        assert_eq!(extras[0].pane_id, "w5:pA");
+        assert!(matches!(extras[0].quota, PaneQuotaUpdate::Preserve));
+        assert!(extras[0].show_account_quota);
     }
 
     fn published_pane(
@@ -3521,6 +3561,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3555,6 +3596,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3594,6 +3636,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,
@@ -3643,6 +3686,7 @@ mod tests {
             },
             provider_id: "anthropic".to_string(),
             account_pin: Some("account-pin".to_string()),
+            credential_id: None,
         };
         let update = omp_quota_with_refresh(
             &cache,

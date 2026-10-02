@@ -202,8 +202,13 @@ pub fn console_credential(paths: &OpenCodePaths) -> Option<ConsoleCredential> {
     }
     let mut statement = connection
         .prepare(
-            "SELECT value FROM credential WHERE integration_id = ?1 ORDER BY time_updated DESC",
+            "SELECT value FROM credential WHERE integration_id = ?1 ORDER BY active DESC, time_updated DESC",
         )
+        .or_else(|_| {
+            connection.prepare(
+                "SELECT value FROM credential WHERE integration_id = ?1 ORDER BY time_updated DESC",
+            )
+        })
         .ok()?;
     let mut rows = statement.query(["opencode"]).ok()?;
     while let Some(row) = rows.next().ok()? {
@@ -557,6 +562,27 @@ pub fn classify_opencode(
     }
 }
 
+pub fn classify_opencode_with_console(
+    lookup: SessionLookup,
+    auth: Result<&AuthMap, AuthReadError>,
+    env_go_key_present: bool,
+    console_login_present: impl FnOnce() -> bool,
+) -> crate::model::Resolution {
+    use crate::model::{BillingTarget, Resolution};
+
+    let go_session = matches!(
+        &lookup,
+        SessionLookup::Found(session)
+            if session.provider_id.as_deref().is_some_and(is_approved_go_provider)
+    );
+    match classify_opencode(lookup, auth, env_go_key_present) {
+        Resolution::Indeterminate if go_session && console_login_present() => {
+            Resolution::Subscription(BillingTarget::opencode_go())
+        }
+        resolution => resolution,
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn write_fixture_db(path: &Path, rows: &[(&str, &str)]) -> rusqlite::Result<()> {
     let connection = Connection::open(path)?;
@@ -733,6 +759,74 @@ mod tests {
         )
         .unwrap();
         assert!(console_credential(&paths_in(directory.path())).is_none());
+    }
+
+    fn device_login(account: &str, org: &str) -> String {
+        format!(
+            r#"{{"type":"oauth","methodID":"device","access":"st_{account}","metadata":{{"accountID":"{account}","orgID":"{org}"}}}}"#
+        )
+    }
+
+    #[test]
+    fn the_active_console_login_wins_over_a_newer_inactive_one() {
+        let directory = tempdir().unwrap();
+        let db = directory.path().join("opencode.db");
+        let active = device_login("acc_active", "wrk_active");
+        let newer = device_login("acc_newer", "wrk_newer");
+        write_credential_fixture_db(
+            &db,
+            &[
+                ("cred_active", "opencode", active.as_str()),
+                ("cred_newer", "opencode", newer.as_str()),
+            ],
+        )
+        .unwrap();
+        let account = || {
+            console_credential(&paths_in(directory.path()))
+                .expect("console login")
+                .account_id
+        };
+        assert_eq!(account(), "console:acc_newer:wrk_newer");
+        Connection::open(&db)
+            .unwrap()
+            .execute("UPDATE credential SET active = (id = 'cred_active')", [])
+            .unwrap();
+        assert_eq!(account(), "console:acc_active:wrk_active");
+    }
+
+    #[test]
+    fn a_credential_table_without_an_active_column_reads_the_newest_login() {
+        let directory = tempdir().unwrap();
+        let db = directory.path().join("opencode.db");
+        let connection = Connection::open(&db).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE credential (
+                    id TEXT PRIMARY KEY,
+                    integration_id TEXT,
+                    value TEXT NOT NULL,
+                    time_updated INTEGER NOT NULL
+                );",
+            )
+            .unwrap();
+        for (index, (id, account)) in [("cred_old", "acc_old"), ("cred_new", "acc_new")]
+            .into_iter()
+            .enumerate()
+        {
+            connection
+                .execute(
+                    "INSERT INTO credential (id, integration_id, value, time_updated)
+                     VALUES (?1, 'opencode', ?2, ?3)",
+                    rusqlite::params![id, device_login(account, "wrk_1"), index as i64 + 1],
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            console_credential(&paths_in(directory.path()))
+                .expect("console login")
+                .account_id,
+            "console:acc_new:wrk_1"
+        );
     }
 
     #[test]
