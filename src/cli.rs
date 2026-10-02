@@ -89,7 +89,7 @@ pub enum Command {
         #[arg(long, conflicts_with_all = ["check", "apply"])]
         uninstall: bool,
         /// Agents to configure: all, claude, codex, grok, agy, opencode, pi,
-        /// omp, devin, muse, cursor, kilo. Repeat or comma-separate to pick several. Defaults to
+        /// omp, devin, muse, cursor, kilo, kimi. Repeat or comma-separate to pick several. Defaults to
         /// every supported agent (or $HERDR_AGENT_QUOTA_AGENTS when set), so
         /// `--uninstall` alone still removes everything this plugin installed.
         #[arg(long, value_delimiter = ',')]
@@ -164,6 +164,7 @@ pub enum ProviderSelection {
     Devin,
     Muse,
     Cursor,
+    Kimi,
 }
 
 impl ProviderSelection {
@@ -177,6 +178,7 @@ impl ProviderSelection {
             Self::Devin => vec![Provider::Devin],
             Self::Muse => vec![Provider::Muse],
             Self::Cursor => vec![Provider::Cursor],
+            Self::Kimi => vec![Provider::Kimi],
         }
     }
 }
@@ -199,6 +201,7 @@ pub enum AgentSelection {
     Muse,
     Cursor,
     Kilo,
+    Kimi,
 }
 
 /// How quota tokens are arranged in Herdr's agent sidebar.
@@ -897,7 +900,7 @@ impl AgentSelection {
     /// New agents are appended, never inserted, so a saved complete list from
     /// an earlier build is a proper prefix of this array and can still mean
     /// "everything on" after a provider is added.
-    pub const SUPPORTED: [Harness; 11] = [
+    pub const SUPPORTED: [Harness; 12] = [
         Harness::Claude,
         Harness::Codex,
         Harness::Grok,
@@ -909,6 +912,7 @@ impl AgentSelection {
         Harness::Muse,
         Harness::Cursor,
         Harness::Kilo,
+        Harness::Kimi,
     ];
 
     /// Length of the first complete list the settings pane persisted.
@@ -936,6 +940,7 @@ impl AgentSelection {
             Self::Muse => Some(Harness::Muse),
             Self::Cursor => Some(Harness::Cursor),
             Self::Kilo => Some(Harness::Kilo),
+            Self::Kimi => Some(Harness::Kimi),
         }
     }
 
@@ -952,6 +957,7 @@ impl AgentSelection {
             Harness::Muse => "muse",
             Harness::Cursor => "cursor",
             Harness::Kilo => "kilo",
+            Harness::Kimi => "kimi",
         }
     }
 
@@ -1029,6 +1035,7 @@ impl AgentSelection {
             "muse" => Some(Self::Muse),
             "cursor" => Some(Self::Cursor),
             "kilo" => Some(Self::Kilo),
+            "kimi" => Some(Self::Kimi),
             _ => None,
         }
     }

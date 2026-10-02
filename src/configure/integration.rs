@@ -32,6 +32,7 @@ fn integration_id(harness: Harness) -> Option<&'static str> {
         Harness::Devin => Some("devin"),
         Harness::Cursor => Some("cursor"),
         Harness::Kilo => Some("kilo"),
+        Harness::Kimi => Some("kimi"),
         Harness::Agy | Harness::Muse => None,
     }
 }

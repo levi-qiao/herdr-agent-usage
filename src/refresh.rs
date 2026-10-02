@@ -14,7 +14,7 @@ use crate::omp::OmpEvidence;
 use crate::opencode::OpenCodePaths;
 use crate::presentation::{MetadataTokens, RowStyle, SidebarShape};
 use crate::providers::statusline::enrich_cache_session;
-use crate::providers::{codex, cursor, devin, grok, muse, omp as omp_provider, opencode_go};
+use crate::providers::{codex, cursor, devin, grok, kimi, muse, omp as omp_provider, opencode_go};
 use crate::route;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -488,7 +488,7 @@ fn handle_event(event: &Value) -> Result<()> {
     // would add a visible repaint without improving attribution or the topic.
     let topic_pane = (!matches!(
         harness,
-        Harness::Pi | Harness::Omp | Harness::Muse | Harness::Cursor
+        Harness::Pi | Harness::Omp | Harness::Muse | Harness::Cursor | Harness::Kimi
     ))
     .then_some(pane_id);
     let result = handle_named_pane(
@@ -913,7 +913,7 @@ fn apply_session_summary(pane: &mut AgentPane, summary: &str) {
     pane.session_summary = summary.to_string();
     if matches!(
         pane.harness,
-        Harness::Muse | Harness::Cursor | Harness::Grok
+        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Kimi
     ) {
         pane.topic = summary.to_string();
     }
@@ -1363,6 +1363,7 @@ fn refresh_provider(
         Provider::Devin => devin::fetch_for_sessions(&session_ids).map(FetchedSnapshot::direct),
         Provider::Muse => muse::fetch_for_sessions(&session_ids).map(FetchedSnapshot::direct),
         Provider::Cursor => cursor::fetch_for_sessions(&session_ids).map(FetchedSnapshot::direct),
+        Provider::Kimi => kimi::fetch_for_sessions(&session_ids).map(FetchedSnapshot::direct),
         Provider::Claude | Provider::Agy => load_statusline_snapshot(cache, provider),
         // OpenCode Go and Kilo are fetched for a resolved pane, never through
         // the provider list; see `refresh_scoped_target`.
@@ -1386,6 +1387,7 @@ fn refresh_provider(
                     | Provider::Devin
                     | Provider::Muse
                     | Provider::Cursor
+                    | Provider::Kimi
             ) {
                 let (_, mtime) = current_account_gate(provider);
                 cache.save_preserving_diagnostics_for_sessions(
@@ -1502,6 +1504,7 @@ fn current_account_gate(provider: Provider) -> (Option<String>, Option<u64>) {
         Provider::Devin => (devin::current_account_id(), devin::auth_mtime_unix()),
         Provider::Muse => (muse::current_account_id(), muse::auth_mtime_unix()),
         Provider::Cursor => (cursor::current_account_id(), cursor::auth_mtime_unix()),
+        Provider::Kimi => (kimi::current_account_id(), kimi::auth_mtime_unix()),
         Provider::OpenCodeGo => (
             OpenCodePaths::from_env().and_then(|paths| crate::opencode::go_account_id(&paths)),
             None,

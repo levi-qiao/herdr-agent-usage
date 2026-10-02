@@ -120,7 +120,7 @@ fn severity_palette(layout: SidebarLayout) -> [&'static str; 3] {
 }
 /// Provider row keys only. Provider and model text inherit the sidebar theme;
 /// status colour lives on the vendor icon's three mutually exclusive tokens.
-const PROVIDER_STYLES: [(Harness, &str); 11] = [
+const PROVIDER_STYLES: [(Harness, &str); 12] = [
     (Harness::Claude, "claude"),
     (Harness::Codex, "codex"),
     (Harness::Grok, "grok"),
@@ -132,6 +132,7 @@ const PROVIDER_STYLES: [(Harness, &str); 11] = [
     (Harness::Muse, "muse"),
     (Harness::Cursor, "cursor"),
     (Harness::Kilo, "kilo"),
+    (Harness::Kimi, "kimi"),
 ];
 const THEME_SELECTION_KEYS: [&str; 2] = ["selection_bg", "active_row_bg"];
 const OFFICIAL_IDENTITY_TOKENS: [&str; 4] = ["state_icon", "machine", "workspace", "tab"];
@@ -1481,6 +1482,8 @@ fn skipped_provider_label(provider: &str) -> &str {
         "devin" => "Devin",
         "muse" => "Muse",
         "cursor" => "Cursor",
+        "kilo" => "Kilo",
+        "kimi" => "Kimi",
         other => other,
     }
 }

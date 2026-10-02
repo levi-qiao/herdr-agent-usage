@@ -73,7 +73,7 @@ cd herdr-agent-usage
 | `kilo` | `kilo` | `~/.local/share/kilo` |
 
 当前支持列表（只许追加，不许重排）：
-`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo`。
+`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo,kimi`。
 
 一个都没探测到：安装 **all**，并明确告诉用户。优先只装探测到的子集——
 `configure` 会给选中的 Claude/Agy 写 statusLine、给 Cursor 写 hooks，不要

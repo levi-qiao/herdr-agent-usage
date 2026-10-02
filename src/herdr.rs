@@ -1828,7 +1828,8 @@ fn quota_scope(pane: &AgentPane, evidence: &PayerEvidence) -> Option<String> {
         | Harness::Devin
         | Harness::OpenCode
         | Harness::Cursor
-        | Harness::Muse => Some(String::new()),
+        | Harness::Muse
+        | Harness::Kimi => Some(String::new()),
         // Its statusLine names no account; the hook's stamp does.
         Harness::Claude => evidence.claude_account(pane.session.as_ref()?.id()?),
         // Its statusLine names no account, and nothing stamps one.

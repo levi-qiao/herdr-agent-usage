@@ -40,7 +40,8 @@ pub fn resolve_with_identity(pane: &AgentPane) -> ResolvedPane {
         | Harness::Agy
         | Harness::Devin
         | Harness::Muse
-        | Harness::Cursor => pane
+        | Harness::Cursor
+        | Harness::Kimi => pane
             .harness
             .billing()
             .map(BillingTarget::original_four)

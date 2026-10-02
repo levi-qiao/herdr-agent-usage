@@ -39,6 +39,9 @@ pub enum Provider {
     /// Cursor Agent CLI's included monthly pool, read from DashboardService.
     /// A 1:1 harness→billing mapping refreshed through `--provider all`.
     Cursor,
+    /// Kimi Code's 5h and weekly windows, read from the `/usages` call its CLI
+    /// makes. A 1:1 harness→billing mapping refreshed through `--provider all`.
+    Kimi,
 }
 
 /// Quota collector identity. The original four keep the historical
@@ -48,7 +51,7 @@ pub type Billing = Provider;
 impl Provider {
     /// The collectors a bare `--provider all` refreshes. OpenCode Go is not
     /// here on purpose; see the variant's note.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Codex,
         Self::Grok,
         Self::Claude,
@@ -56,6 +59,7 @@ impl Provider {
         Self::Devin,
         Self::Muse,
         Self::Cursor,
+        Self::Kimi,
     ];
 
     /// Collectors fetched only for a pane that resolved to them.
@@ -78,6 +82,7 @@ impl Provider {
             Self::Devin => "Devin",
             Self::Muse => "Muse",
             Self::Cursor => "Cursor",
+            Self::Kimi => "Kimi",
         }
     }
 
@@ -96,6 +101,7 @@ impl Provider {
             Self::Devin => "devin-cli-billing",
             Self::Muse => "muse-code-subscription",
             Self::Cursor => "cursor-dashboard-usage",
+            Self::Kimi => "kimi-code-usages",
         }
     }
 }
@@ -116,6 +122,7 @@ pub enum Harness {
     Muse,
     Cursor,
     Kilo,
+    Kimi,
 }
 
 impl Harness {
@@ -134,6 +141,7 @@ impl Harness {
             "muse" | "muse-code" => Some(Self::Muse),
             "cursor" | "cursor-agent" | "cursor-cli" => Some(Self::Cursor),
             "kilo" | "kilo-code" | "kilocode" => Some(Self::Kilo),
+            "kimi" | "kimi-code" | "kimi-cli" => Some(Self::Kimi),
             _ => None,
         }
     }
@@ -149,6 +157,7 @@ impl Harness {
             Self::Devin => Some(Provider::Devin),
             Self::Muse => Some(Provider::Muse),
             Self::Cursor => Some(Provider::Cursor),
+            Self::Kimi => Some(Provider::Kimi),
             Self::OpenCode | Self::Pi | Self::Omp | Self::Kilo => None,
         }
     }
@@ -175,6 +184,7 @@ impl Harness {
             Self::Muse => "Muse",
             Self::Cursor => "Cursor",
             Self::Kilo => "Kilo",
+            Self::Kimi => "Kimi",
         }
     }
 }
@@ -890,7 +900,9 @@ impl ProviderSnapshot {
         match self.provider {
             // A Muse session with no completed model call yet runs the
             // `settings.json` default, like a fresh Devin session.
-            Provider::Devin | Provider::Muse | Provider::Cursor => self.model.as_deref(),
+            Provider::Devin | Provider::Muse | Provider::Cursor | Provider::Kimi => {
+                self.model.as_deref()
+            }
             Provider::Agy if self.only_observed_session() == Some(session_id) => {
                 self.model.as_deref()
             }
@@ -1111,7 +1123,8 @@ impl ProviderSnapshot {
             | Provider::Kilo
             | Provider::Omp
             | Provider::Devin
-            | Provider::Muse => {
+            | Provider::Muse
+            | Provider::Kimi => {
                 window_in(&live, WindowKind::FiveHour).or_else(|| long_window(&live))
             }
         };

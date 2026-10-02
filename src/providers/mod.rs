@@ -5,6 +5,7 @@ pub mod cursor;
 pub mod devin;
 pub mod grok;
 pub mod kilo;
+pub mod kimi;
 pub mod muse;
 pub mod omp;
 pub mod opencode_go;
