@@ -20,8 +20,9 @@ Provider／模型保持墨白色；进度条上的严重程度色仍表示剩余
 Herdr endpoint 侧栏宽度定长（已计入缩进和滚动条）。空字段自动折叠，百分比可选择
 显示剩余或已用额度。Cache 与 TTL 默认关闭（需要时可在设置里打开）。共用同一份额度的
 标签页在同一个 Space 里都还在 Agent 列表里，只把重复的 5h/7d/30d 收到一行上：
-Grok、Codex、Devin、OpenCode、Cursor、Muse 按厂商；Claude 按会话所在
-`CLAUDE_CONFIG_DIR` 配置的账号；omp、Pi、Kilo 按会话实际计费的账号。无法确认计费方
+Grok、Codex、Devin、Cursor、Muse 按厂商；Claude 按会话所在
+`CLAUDE_CONFIG_DIR` 配置的账号；omp、Pi、Kilo、OpenCode 按会话实际计费的账号（omp 按
+credential pin，没有 pin 时按为该会话服务的 profile 与已存凭据）。无法确认计费方
 的标签页保留自己的额度行，Agy 标签页也一样。在 Herdr 自带的 agent 排序下，只有相邻的
 标签页才会共用一行。宽栏下主行只留图标、厂商名和额度，子行无图标，
 只显示 model、topic、cx。设置里的 1 行空格仍隔开不同 agent；同一厂商的嵌套子行贴在一起。窄栏仍平铺。
@@ -180,7 +181,7 @@ Claude 状态栏节奏是独立开关，默认开启以保持升级前行为；�
 | Cursor | CLI DashboardService usage；at、api 和 30d | 当前 CLI `auth.json`，否则 macOS Keychain 里 `cursor-agent login` 的登录，否则在 CLI 没有自己的登录且设置了 `$CURSOR_STATE_DB` 时用桌面端 `state.vscdb` 的 access token；模型和主题来自本地会话文件；`cx` 来自 `store.db` `token_details`（CLI 底栏百分比）；cache 来自 CLI hook |
 | Claude Code | StatusLine；5h 和 7d | 精确会话的观测 |
 | Agy / Antigravity | StatusLine；5h、7d，以及 Gemini 会话上的 api（第三方池） | 精确会话与可确认的模型额度池 |
-| OpenCode | OpenCode Go usage 接口 | Go 凭据；确认的 PAYG 路由不显示订阅额度 |
+| OpenCode | OpenCode 控制台 Go 额度；按 key 的 usage 接口作为回退 | OpenCode 存储（`credential` 表）里当前激活的控制台登录，没有 Go API key 时它也能证明 Go 会话；回退为 Go API key；确认的 PAYG 路由不显示订阅额度 |
 | Pi | 规范 Codex collector 的额度 | 仅在记录的账号一致时复用 |
 | OMP | `omp usage --json --provider <id>` | usage 账号与会话 credential pin 一致 |
 | Kilo Code | Kilo Pass 账号状态（`kiloPass.getState`）；30d | Kilo `auth.json` 里的 OAuth 网关登录，且只对后端为 Kilo Gateway 的会话生效；上下文取自该会话的消息与 Kilo 的模型目录 |
