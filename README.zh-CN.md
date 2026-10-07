@@ -56,6 +56,11 @@ GitHub 仓库名和 Herdr 插件 id 都是 `herdr-agent-usage`。`./install.sh` 
 做完 Herdr integration 和 macOS 钥匙串授权。要让这台电脑上的编程助手收尾，
 把 [让 Agent 装完整](#让-agent-装完整) 里的提示词贴给它。
 
+iTerm2 用户可选用 [Hack Herdr Nerd Font](docs/font-iterm2.md#简体中文)，把
+Herdr 图标和 Nerd Font 符号放进同一套字体。它随 release 作为独立附件分发
+（也可以从钉死的上游版本自行构建）；SSH 场景仍装在本地 Mac，并关闭该
+Profile 的独立 Non-ASCII 字体。
+
 在仓库目录升级：
 
 ```sh
@@ -65,10 +70,6 @@ git pull --ff-only
 
 升级保留已有偏好，修复插件管理的配置，重新读取额度并自动恢复后台更新。
 不需要删除缓存或管理 watcher 进程；Herdr 服务端连接变化后，watcher 会自动接管。
-
-iTerm2 可使用可选的 [Hack Herdr Nerd Font](docs/font-iterm2.md#简体中文)，
-同时保留 Herdr 与 Nerd Font 图标。SSH 场景也在 Mac 安装，并关闭对应 Profile
-的独立 Non-ASCII 字体。
 
 ## 让 Agent 装完整
 
@@ -159,37 +160,37 @@ herdr plugin pane open --plugin herdr-agent-usage --entrypoint settings --focus
 
 <img src="docs/screenshots/settings.png" alt="Agent quota 设置" width="760">
 
-| 设置            | 可选项                                                                                                                  |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Percentages     | 剩余或已用比例；颜色始终表示剩余额度                                                                                    |
-| Sidebar pacing  | 关闭（默认）保留额度百分比和进度条；开启后在 5h/7d 行显示节奏                                                           |
-| StatusLine pace | 开启（默认）保留现有的额度节奏输出；关闭后不改 Claude 自己的 statusLine 输出                                            |
-| Layout          | `gauges`（默认）在每个额度数字旁加进度条；`packed` 合并相关字段；`stacked` 将字段分行显示                               |
-| Row gap         | Agent 之间保留零行或一行空白                                                                                            |
-| Watch interval  | 30 秒–1 小时，默认 60 秒                                                                                                |
-| Fields          | 默认开启提供方、主题、模型、上下文、短期／长期／月度额度；cache 与 TTL 可选                                             |
-| Agent order     | 按 Space 分组，组内剩余额度最少优先（默认）；按 Space 保持标签页顺序、同一账号的标签页放在一起；或使用 Herdr 自己的排序 |
-| Low quota alert | 关闭，或设置 1%–100% 的提醒阈值                                                                                         |
-| Agents          | Claude、Codex、Grok、Agy、OpenCode、Pi、OMP、Devin、Muse、Cursor、Kilo                                                  |
+| 设置 | 可选项 |
+| --- | --- |
+| Percentages | 剩余或已用比例；颜色始终表示剩余额度 |
+| Sidebar pacing | 关闭（默认）保留额度百分比和进度条；开启后在 5h/7d 行显示节奏 |
+| StatusLine pace | 开启（默认）保留现有的额度节奏输出；关闭后不改 Claude 自己的 statusLine 输出 |
+| Layout | `gauges`（默认）在每个额度数字旁加进度条；`packed` 合并相关字段；`stacked` 将字段分行显示 |
+| Row gap | Agent 之间保留零行或一行空白 |
+| Watch interval | 30 秒–1 小时，默认 60 秒 |
+| Fields | 默认开启提供方、主题、模型、上下文、短期／长期／月度额度；cache 与 TTL 可选 |
+| Agent order | 按 Space 分组，组内剩余额度最少优先（默认）；按 Space 保持标签页顺序、同一账号的标签页放在一起；或使用 Herdr 自己的排序 |
+| Low quota alert | 关闭，或设置 1%–100% 的提醒阈值 |
+| Agents | Claude、Codex、Grok、Agy、OpenCode、Pi、OMP、Devin、Muse、Cursor、Kilo |
 
 方向键或空格修改，`a` 应用，`q` 关闭。脚本配置选项见 `./install.sh --help`。
 Claude 状态栏节奏是独立开关，默认开启以保持升级前行为；可用 `./install.sh --statusline-pace off` 关闭，关闭时仍会正常采集额度观测并供侧栏使用。
 
 ## 数据来源与边界
 
-| Agent             | 额度来源                                                 | 归属依据                                                                                                                                                                                                                                                                         |
-| ----------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex             | Codex app-server；5h 和／或 7d                           | 插件 `CODEX_HOME` 中的当前登录                                                                                                                                                                                                                                                   |
-| Grok              | CLI billing 接口；7d 或 30d                              | 当前 CLI 凭据                                                                                                                                                                                                                                                                    |
-| Devin             | CLI usage 接口；1d 和 7d                                 | 当前 CLI 凭据                                                                                                                                                                                                                                                                    |
-| Muse Code         | CLI 订阅接口；5h 和 7d                                   | 当前 CLI 账号登录；会话通过 Muse 的 session lock 识别（Linux）                                                                                                                                                                                                                   |
-| Cursor            | CLI DashboardService usage；at、api 和 30d               | 当前 CLI `auth.json`，否则 macOS Keychain 里 `cursor-agent login` 的登录，否则在 CLI 没有自己的登录且设置了 `$CURSOR_STATE_DB` 时用桌面端 `state.vscdb` 的 access token；模型和主题来自本地会话文件；`cx` 来自 `store.db` `token_details`（CLI 底栏百分比）；cache 来自 CLI hook |
-| Claude Code       | StatusLine；5h 和 7d                                     | 精确会话的观测                                                                                                                                                                                                                                                                   |
-| Agy / Antigravity | StatusLine；5h、7d，以及 Gemini 会话上的 api（第三方池） | 精确会话与可确认的模型额度池                                                                                                                                                                                                                                                     |
-| OpenCode          | OpenCode 控制台 Go 额度；按 key 的 usage 接口作为回退    | OpenCode 存储（`credential` 表）里当前激活的控制台登录，没有 Go API key 时它也能证明 Go 会话；存储里没有任何控制台连接时才回退为 Go API key；确认的 PAYG 路由不显示订阅额度                                                                                                      |
-| Pi                | 规范 Codex collector 的额度                              | 仅在记录的账号一致时复用                                                                                                                                                                                                                                                         |
-| OMP               | `omp usage --json --provider <id>`                       | usage 账号与会话 credential pin 一致；多个已存 API key（omp 的报告不带身份信息）时显示整个池（`1/2 keys usable · next 3h10m`）                                                                                                                                                   |
-| Kilo Code         | Kilo Pass 账号状态（`kiloPass.getState`）；30d           | Kilo `auth.json` 里的 OAuth 网关登录，且只对后端为 Kilo Gateway 的会话生效；上下文取自该会话的消息与 Kilo 的模型目录                                                                                                                                                             |
+| Agent | 额度来源 | 归属依据 |
+| --- | --- | --- |
+| Codex | Codex app-server；5h 和／或 7d | 插件 `CODEX_HOME` 中的当前登录 |
+| Grok | CLI billing 接口；7d 或 30d | 当前 CLI 凭据 |
+| Devin | CLI usage 接口；1d 和 7d | 当前 CLI 凭据 |
+| Muse Code | CLI 订阅接口；5h 和 7d | 当前 CLI 账号登录；会话通过 Muse 的 session lock 识别（Linux） |
+| Cursor | CLI DashboardService usage；at、api 和 30d | 当前 CLI `auth.json`，否则 macOS Keychain 里 `cursor-agent login` 的登录，否则在 CLI 没有自己的登录且设置了 `$CURSOR_STATE_DB` 时用桌面端 `state.vscdb` 的 access token；模型和主题来自本地会话文件；`cx` 来自 `store.db` `token_details`（CLI 底栏百分比）；cache 来自 CLI hook |
+| Claude Code | StatusLine；5h 和 7d | 精确会话的观测 |
+| Agy / Antigravity | StatusLine；5h、7d，以及 Gemini 会话上的 api（第三方池） | 精确会话与可确认的模型额度池 |
+| OpenCode | OpenCode 控制台 Go 额度；按 key 的 usage 接口作为回退 | OpenCode 存储（`credential` 表）里当前激活的控制台登录，没有 Go API key 时它也能证明 Go 会话；存储里没有任何控制台连接时才回退为 Go API key；确认的 PAYG 路由不显示订阅额度 |
+| Pi | 规范 Codex collector 的额度 | 仅在记录的账号一致时复用 |
+| OMP | `omp usage --json --provider <id>` | usage 账号与会话 credential pin 一致；多个已存 API key（omp 的报告不带身份信息）时显示整个池（`1/2 keys usable · next 3h10m`） |
+| Kilo Code | Kilo Pass 账号状态（`kiloPass.getState`）；30d | Kilo `auth.json` 里的 OAuth 网关登录，且只对后端为 Kilo Gateway 的会话生效；上下文取自该会话的消息与 Kilo 的模型目录 |
 
 Claude Code 状态栏始终保留用户自己的 statusLine 输出。**StatusLine pace** 默认开启以保持现有行为；
 关闭后不再追加节奏。开启时会在末尾追加当前生效额度窗口的消耗节奏，例如 `⏱ 5h ↓12%`：
@@ -213,21 +214,21 @@ Claude/Agy 没有可靠的服务账号 ID，因此不跨会话共享观测值。
 
 ## 常见问题
 
-| 现象                                                                      | 检查                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 品牌图标是方框或 `?`                                                      | 字体没装上，或当前终端没有 U+E1A0–U+E1B6 映射——见 [让 Agent 装完整](#让-agent-装完整)。`configure` 之后要重载终端。1.6.1 之前工作态的黄色 `?` 是 ZWNJ 的 bug，先升级。Muse 故意用文本标记 `◈`。宽栏里同一厂商的嵌套子行本来就没有图标。                                                                                                                                                                                                    |
-| 缺少会话数据                                                              | 运行 `herdr integration status`，安装缺失项后重启对应 agent                                                                                                                                                                                                                                                                                                                                                                                |
-| Claude/Agy 缺少额度                                                       | 发送一轮消息，让该会话的 StatusLine 产生观测                                                                                                                                                                                                                                                                                                                                                                                               |
-| OMP 缺少额度                                                              | 检查 `omp usage --json --redact --provider <id>`                                                                                                                                                                                                                                                                                                                                                                                           |
-| Devin 缺少额度                                                            | 检查 CLI 登录；使用自定义路径时检查 `DEVIN_CREDENTIALS_FILE`                                                                                                                                                                                                                                                                                                                                                                               |
-| Muse 缺少额度                                                             | 运行 `muse login`（API key 登录没有订阅额度）；使用自定义路径时检查 `MUSE_AUTH_PATH`。macOS 上 `storage: "keychain"` 登录还需一次性 Keychain 授权：运行 `herdr-agent-usage refresh --provider muse --keychain-approve`，并点击 **Always Allow**                                                                                                                                                                                            |
-| Cursor 缺少额度或仍显示上一账号                                           | 运行 `cursor login`。macOS 上 `cursor-agent login` 把 token 存在 Keychain：运行 `herdr-agent-usage refresh --provider cursor --keychain-approve` 并点击 **Always Allow**。仅当 CLI 本身没有登录且设置了 `$CURSOR_STATE_DB` 时才使用桌面端 token                                                                                                                                                                                            |
+| 现象 | 检查 |
+| --- | --- |
+| 品牌图标是方框或 `?` | 字体没装上，或当前终端没有 U+E1A0–U+E1B6 映射——见 [让 Agent 装完整](#让-agent-装完整)。`configure` 之后要重载终端。1.6.1 之前工作态的黄色 `?` 是 ZWNJ 的 bug，先升级。Muse 故意用文本标记 `◈`。宽栏里同一厂商的嵌套子行本来就没有图标。 |
+| 缺少会话数据 | 运行 `herdr integration status`，安装缺失项后重启对应 agent |
+| Claude/Agy 缺少额度 | 发送一轮消息，让该会话的 StatusLine 产生观测 |
+| OMP 缺少额度 | 检查 `omp usage --json --redact --provider <id>` |
+| Devin 缺少额度 | 检查 CLI 登录；使用自定义路径时检查 `DEVIN_CREDENTIALS_FILE` |
+| Muse 缺少额度 | 运行 `muse login`（API key 登录没有订阅额度）；使用自定义路径时检查 `MUSE_AUTH_PATH`。macOS 上 `storage: "keychain"` 登录还需一次性 Keychain 授权：运行 `herdr-agent-usage refresh --provider muse --keychain-approve`，并点击 **Always Allow** |
+| Cursor 缺少额度或仍显示上一账号 | 运行 `cursor login`。macOS 上 `cursor-agent login` 把 token 存在 Keychain：运行 `herdr-agent-usage refresh --provider cursor --keychain-approve` 并点击 **Always Allow**。仅当 CLI 本身没有登录且设置了 `$CURSOR_STATE_DB` 时才使用桌面端 token |
 | 用 Cursor 时 Ghostty 反复弹出 “would like to access data from other apps” | 这是 macOS 的 `SystemPolicyAppData`：Ghostty 的子进程碰到了 Cursor 名下的文件（`~/.cursor` 或 Application Support）。本插件在 macOS 上默认不再打开这些目录，除非设置了 `$CURSOR_HOME` / `$CURSOR_AUTH_FILE` / `$CURSOR_STATE_DB`。Cursor CLI 自己仍可能弹（它会写 `~/Library/Caches`）。点 **Allow**，或给 Ghostty 开 Files & Folders / Full Disk Access。点 **Don't Allow** 之后读会失败关闭。升级后请重载插件，让 watcher 用上新二进制。 |
-| Cursor 缺少 cache/cx                                                      | `cx` 来自该会话的 `store.db`；cache 仍需重启 pane 以加载 `hooks.json` 后再发一轮（headless `--print` 不会触发这些 hook）                                                                                                                                                                                                                                                                                                                   |
-| 缺少侧栏行                                                                | 运行下面的 configure action 修复插件配置                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 侧栏太窄，`gauges` 不显示进度条                                           | 约 24 列以下是预期行为；调宽后刷新即可                                                                                                                                                                                                                                                                                                                                                                                                     |
-| 调整宽度后 `gauges` 仍是旧长度                                            | 用 `prefix+shift+r` 刷新；没有随拖动实时发布的路径                                                                                                                                                                                                                                                                                                                                                                                         |
-| `gauges` 下 cache 信息仍分两行                                            | 调宽侧栏，直到合并后的整行放得下                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Cursor 缺少 cache/cx | `cx` 来自该会话的 `store.db`；cache 仍需重启 pane 以加载 `hooks.json` 后再发一轮（headless `--print` 不会触发这些 hook） |
+| 缺少侧栏行 | 运行下面的 configure action 修复插件配置 |
+| 侧栏太窄，`gauges` 不显示进度条 | 约 24 列以下是预期行为；调宽后刷新即可 |
+| 调整宽度后 `gauges` 仍是旧长度 | 用 `prefix+shift+r` 刷新；没有随拖动实时发布的路径 |
+| `gauges` 下 cache 信息仍分两行 | 调宽侧栏，直到合并后的整行放得下 |
 
 ```sh
 herdr plugin action invoke refresh --plugin herdr-agent-usage

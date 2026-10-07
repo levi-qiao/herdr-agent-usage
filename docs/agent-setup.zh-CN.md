@@ -35,7 +35,7 @@ cd herdr-agent-usage
 - Herdr 的插件 **action 看不到你 export 的环境变量**。选择项只能通过
   `./install.sh` 的 flag 传进去。
 - 使用 `rust-toolchain.toml` 里的工具链（走 rustup）。不要 `brew install
-rust` 或用发行版 Rust 顶替。
+  rust` 或用发行版 Rust 顶替。
 - 只有人必须动手时才问用户：钥匙串点 **Always Allow**、重载终端、重启正在
   跑的 agent 窗格、看一眼图标对不对。
 
@@ -44,11 +44,11 @@ rust` 或用发行版 Rust 顶替。
 探测前先把常见 bin 目录放进 `PATH`（`~/.local/bin`、`~/.cargo/bin`、
 `/opt/homebrew/bin`、`/usr/local/bin`）。
 
-| 需要             | 怎么查                    | 没有时                                                                                                                                            |
-| ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Herdr **0.9.0+** | `herdr --version`         | 停下来，让用户先装 Herdr。                                                                                                                        |
-| rustup + Cargo   | `command -v rustup cargo` | 从 https://rustup.rs 装 rustup，不要用 Homebrew/发行版的 `rust` 包。随后 `cargo build` 会按 `rust-toolchain.toml` 拉取钉死的版本（当前 1.95.0）。 |
-| macOS 或 Linux   | `uname -s`                | 其他平台不支持。                                                                                                                                  |
+| 需要 | 怎么查 | 没有时 |
+| --- | --- | --- |
+| Herdr **0.9.0+** | `herdr --version` | 停下来，让用户先装 Herdr。 |
+| rustup + Cargo | `command -v rustup cargo` | 从 https://rustup.rs 装 rustup，不要用 Homebrew/发行版的 `rust` 包。随后 `cargo build` 会按 `rust-toolchain.toml` 拉取钉死的版本（当前 1.95.0）。 |
+| macOS 或 Linux | `uname -s` | 其他平台不支持。 |
 
 `herdr plugin link` 需要 Herdr 客户端可用。`herdr` 本身报错就先修这个。
 
@@ -58,19 +58,19 @@ rust` 或用发行版 Rust 顶替。
 `herdr agent list` JSON 里的 kind。写入 `--agent` 的必须是下表里的名字，
 不要把别名直接塞进去。
 
-| `--agent` 名 | 二进制                   | 额外证据                    |
-| ------------ | ------------------------ | --------------------------- |
-| `claude`     | `claude`                 | `~/.claude`                 |
-| `codex`      | `codex`                  | `~/.codex`                  |
-| `grok`       | `grok`                   | `~/.grok`                   |
-| `agy`        | `agy`                    | `~/.gemini/antigravity-cli` |
-| `opencode`   | `opencode`               | `~/.config/opencode`        |
-| `pi`         | `pi`                     | `~/.pi/agent`               |
-| `omp`        | `omp`                    | `~/.omp`                    |
-| `devin`      | `devin`                  | `~/.local/share/devin`      |
-| `muse`       | `muse`、`muse-code`      | `~/.config/muse`            |
-| `cursor`     | `cursor`、`cursor-agent` | `~/.cursor`                 |
-| `kilo`       | `kilo`                   | `~/.local/share/kilo`       |
+| `--agent` 名 | 二进制 | 额外证据 |
+| --- | --- | --- |
+| `claude` | `claude` | `~/.claude` |
+| `codex` | `codex` | `~/.codex` |
+| `grok` | `grok` | `~/.grok` |
+| `agy` | `agy` | `~/.gemini/antigravity-cli` |
+| `opencode` | `opencode` | `~/.config/opencode` |
+| `pi` | `pi` | `~/.pi/agent` |
+| `omp` | `omp` | `~/.omp` |
+| `devin` | `devin` | `~/.local/share/devin` |
+| `muse` | `muse`、`muse-code` | `~/.config/muse` |
+| `cursor` | `cursor`、`cursor-agent` | `~/.cursor` |
+| `kilo` | `kilo` | `~/.local/share/kilo` |
 
 当前支持列表（只许追加，不许重排）：
 `claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo`。
@@ -185,13 +185,14 @@ WezTerm：把 `{ family = "Herdr Agent Icons Max" }` 加进已有的
 VS Code / Cursor 集成终端：在 `terminal.integrated.fontFamily` 末尾加上
 `'Herdr Agent Icons Max'`。
 
-iTerm2：可安装 [Hack Herdr Nerd Font](font-iterm2.md#简体中文)，将 Herdr
-与 Nerd Font 符号放在同一字体中。SSH 场景也在本地 Mac 安装；在 Profiles →
-Text 选择该字体，关闭独立 Non-ASCII 字体。不要用仅含图标的字体接管所有
-非 ASCII 字符。
+iTerm2：如果用户还需要 Nerd Font 符号，可用
+[Hack Herdr Nerd Font](font-iterm2.md#简体中文)。从 release 附件安装到本地
+Mac，在 Profiles → Text 里选它，并关闭独立 Non-ASCII 字体；SSH 会话同样
+使用本地 Mac 的字体。
 
-Terminal.app、Alacritty、Warp：本文没有经验证的按码位映射方案，应说明
-该限制，不要声称显示已修复。Muse 故意用文本标记 `◈`（图标字体里没有它）。
+Terminal.app、Alacritty、Warp：本文没有经验证的按码位映射方案，应如实说明，
+不要声称已经修复。Ghostty 或 kitty 仍是可靠的字体映射路径。Muse 故意用文本
+标记 `◈`（仅图标字体里没有它的 glyph）。
 
 6. 宽侧栏里，同一厂商多出来的嵌套子行**本来就没有**品牌图标，只有表头那
    一行有。这是设计，不是漏装。
@@ -243,18 +244,18 @@ Hook 和 integration 只在会话启动时加载：
 
 ## 5. 还是不对时
 
-| 现象                             | 做什么                                                                                                                                                                                                                                         |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 插件没有 / 侧栏行缺失            | 再跑 `./install.sh`，然后 configure。不要手改 Herdr `config.toml` 里的额度行。                                                                                                                                                                 |
-| integration 仍是 `not installed` | `herdr integration install <id>`，再重启该窗格。                                                                                                                                                                                               |
-| Claude/Agy 没有额度              | 在该会话发一轮。                                                                                                                                                                                                                               |
-| OMP 没有额度                     | `omp usage --json --redact --provider <id>` 必须能跑通。                                                                                                                                                                                       |
-| Cursor 没有额度或仍是上一账号    | `cursor login` / `cursor-agent login`，再按上面做钥匙串 **Always Allow**。                                                                                                                                                                     |
-| Kilo 没有额度                    | `kilo auth list` 里要有 **Kilo Gateway** 的 `oauth` 登录，且该 pane 的会话后端是 Kilo Gateway。Kilo 没有 5h/7d：只有 Kilo Pass 套餐才有可读的额度（30d）。用共享余额的账号，或跑在 OpenRouter／OpenCode Go 上的 pane，都没有 Kilo 额度可显示。 |
-| Muse 没有额度                    | `muse login`（API key 登录没有订阅额度）；`storage` 为 `keychain` 时要批准钥匙串。                                                                                                                                                             |
-| 图标是方框 / `?`                 | 字体 + 终端映射 + 重载；见第 4 节。                                                                                                                                                                                                            |
-| gauges 没有进度条                | 侧栏大约窄于 24 列是预期；拉宽后 `prefix+shift+r`。                                                                                                                                                                                            |
-| 拉宽后 gauges 仍是旧长度         | `prefix+shift+r`。没有随拖动实时发布的路径。                                                                                                                                                                                                   |
+| 现象 | 做什么 |
+| --- | --- |
+| 插件没有 / 侧栏行缺失 | 再跑 `./install.sh`，然后 configure。不要手改 Herdr `config.toml` 里的额度行。 |
+| integration 仍是 `not installed` | `herdr integration install <id>`，再重启该窗格。 |
+| Claude/Agy 没有额度 | 在该会话发一轮。 |
+| OMP 没有额度 | `omp usage --json --redact --provider <id>` 必须能跑通。 |
+| Cursor 没有额度或仍是上一账号 | `cursor login` / `cursor-agent login`，再按上面做钥匙串 **Always Allow**。 |
+| Kilo 没有额度 | `kilo auth list` 里要有 **Kilo Gateway** 的 `oauth` 登录，且该 pane 的会话后端是 Kilo Gateway。Kilo 没有 5h/7d：只有 Kilo Pass 套餐才有可读的额度（30d）。用共享余额的账号，或跑在 OpenRouter／OpenCode Go 上的 pane，都没有 Kilo 额度可显示。 |
+| Muse 没有额度 | `muse login`（API key 登录没有订阅额度）；`storage` 为 `keychain` 时要批准钥匙串。 |
+| 图标是方框 / `?` | 字体 + 终端映射 + 重载；见第 4 节。 |
+| gauges 没有进度条 | 侧栏大约窄于 24 列是预期；拉宽后 `prefix+shift+r`。 |
+| 拉宽后 gauges 仍是旧长度 | `prefix+shift+r`。没有随拖动实时发布的路径。 |
 
 ```sh
 herdr plugin action invoke refresh --plugin herdr-agent-usage

@@ -8,11 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Optional **Hack Herdr Nerd Font** for iTerm2: Regular, Bold, Italic, and
-  BoldItalic preserve the Hack/Nerd Font characters and add all 29 bundled
-  Herdr marks. Includes a reproducible fontTools builder, third-party license
-  notices, and macOS/SSH installation instructions. Terminal preferences and
-  plugin behavior are unchanged.
+- Optional **Hack Herdr Nerd Font** for iTerm2: a release bundle combines
+  Hack Nerd Font with all 29 bundled Herdr marks without changing plugin or
+  terminal settings. The repository keeps the reproducible builder and
+  third-party notices; generated TTFs are published with releases instead of
+  being carried in the source tree.
 - **Kilo Code.** A Kilo pane gets a sidebar row like any other agent: the
   context its session occupies, and the account's Kilo Pass allowance.
   Kilo publishes no 5h or 7h bucket for the Kilo Gateway — its subscription is
@@ -25,7 +25,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   latest completed step. Attribution is by the login rather than the harness:
   Kilo drives other providers from one CLI, so a session on OpenCode Go routes
   to that account's windows under its own name, and a Kilo Gateway session
-  behind a gateway _API key_ is not attributed at all — that key bills the same
+  behind a gateway *API key* is not attributed at all — that key bills the same
   account but cannot name it.
 
   An account with no Kilo Pass pays from a shared credit balance, which Kilo
@@ -33,7 +33,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   percentage drawn against a denominator that does not exist would be invented,
   and the credit pool's own ratio degenerates to a constant 100% on a drained
   account while reading as "quota exhausted".
-
 - **`--agent-order tabs`.** Keeps Herdr's tab order inside each Space, but
   draws every tab of one account together where the first of them sits, so a
   shared row never splits because another agent's tab sits between two of its
@@ -41,6 +40,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "Toggle agent order" action (`prefix+shift+o`) switches between `quota` and
   `tabs`, and from `default` it turns `quota` on. Herdr disables the clickable
   sort label while a plugin view is active, so the toggle is a key, not a click.
+
 
 ### Changed
 
@@ -136,7 +136,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   turn's hit rate without a partial session total.
 - An omp or Pi pane Herdr has no readable session for now says so in the
   sidebar instead of rendering a brand icon with no rows: `restart pane: no
-omp session`, or for a session Herdr has named but the agent has not written
+  omp session`, or for a session Herdr has named but the agent has not written
   yet, `first turn writes the omp session`. Both lead with the step that
   clears them, because a narrow sidebar truncates the row. Both measurements
   came from the transcript, so an unreadable one leaves the pane with no
@@ -495,7 +495,7 @@ omp session`, or for a session Herdr has named but the agent has not written
 - Idle panes no longer keep a frozen remaining count after a quota window
   resets. One policy covers every collector: a cached window whose reset is in
   the past bypasses the 60-second fetch debounce, and a watcher already running
-  for another agent includes only those panes whose _displayed_ windows have
+  for another agent includes only those panes whose *displayed* windows have
   expired. Codex `/status` is still a session-local cache and is not scraped.
 
 ## [1.5.2] - 2026-09-08
@@ -615,7 +615,7 @@ omp session`, or for a session Herdr has named but the agent has not written
   environment, so a pane started under `PI_CONFIG_DIR` or `--profile` is read
   against its own state.
 - omp quota comes from omp's own usage layer, `omp usage --json --provider
-<id>`, and is cached in a credential scope of its own: an omp pane billed to
+  <id>`, and is cached in a credential scope of its own: an omp pane billed to
   Claude never reads (or writes) the canonical Claude snapshot, because the two
   can be different subscriptions. The call is debounced to once a minute per
   provider and omp answers it from its own five-minute usage cache, so it is
@@ -708,7 +708,7 @@ omp session`, or for a session Herdr has named but the agent has not written
   off the plugin writes no `rows_by_agent` entries at all, rather than copies
   of the shared rows.
 - Quota percentages can read as consumed instead of remaining. `--quota-percent
-used` (on `./install.sh` and `herdr-agent-quota configure --apply`, or
+  used` (on `./install.sh` and `herdr-agent-quota configure --apply`, or
   `$HERDR_AGENT_QUOTA_PERCENT` for a direct CLI run) flips every 5h/7d/30d
   number in the sidebar and the dashboard; `remaining` stays the default. The
   sidebar token keeps its width — no `left`/`used` word rides along — and the
@@ -728,7 +728,7 @@ used` (on `./install.sh` and `herdr-agent-quota configure --apply`, or
 - Agy quota is no longer misread when a bucket reports `remaining_percent`
   rather than `remaining_fraction`. The scale now comes from the key name; the
   previous "below 1.0 means a fraction" heuristic rendered `remaining_percent:
-1.0` — a nearly exhausted pool — as 100% remaining and coloured it green.
+  1.0` — a nearly exhausted pool — as 100% remaining and coloured it green.
 - `./install.sh --agent`, `./uninstall.sh --agent`, and
   `--watch-interval-seconds` now reach `configure`. Herdr runs a plugin action
   with a fixed command line in the **server's** environment, so the variables
@@ -799,7 +799,7 @@ used` (on `./install.sh` and `herdr-agent-quota configure --apply`, or
   are `#eceef2`, prompts `#c8cdd6`, cache/TTL/context `#969eae`. Compact
   `5h 0% 1h18m` / `7d 72% 5d22h` windows (spaces, no middle dots) take the
   remaining-percent color: green at 50%+, amber at 20–49%, red below 20%.
-  `no cached` uses that same amber. Herdr joins sibling tokens with `·`,
+  `no cached` uses that same amber. Herdr joins sibling tokens with ` · `,
   so a window is one token. Selected state must not change provider hue. Selected-card
   fill is left to Herdr: `theme.custom.selection_bg` / `active_row_bg` exist
   from 0.8.2, 0.8.0 rejects them, and the intended fill is `#42474f`.

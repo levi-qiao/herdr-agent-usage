@@ -1,0 +1,77 @@
+name: Hack Herdr Nerd Font bundle
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to attach the bundle to; blank builds an artifact only
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  NERD_FONTS_VERSION: v3.4.0
+  HACK_ZIP_SHA256: 8ca33a60c791392d872b80d26c42f2bfa914a480f9eb2d7516d9f84373c36897
+  FONTTOOLS_VERSION: "4.55.0"
+
+jobs:
+  build-font-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned fontTools
+        run: python -m pip install "fonttools==${FONTTOOLS_VERSION}"
+
+      - name: Fetch pinned Hack Nerd Font
+        run: |
+          curl --fail --location --retry 3             "https://github.com/ryanoasis/nerd-fonts/releases/download/${NERD_FONTS_VERSION}/Hack.zip"             --output "$RUNNER_TEMP/Hack.zip"
+          echo "${HACK_ZIP_SHA256}  $RUNNER_TEMP/Hack.zip" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/Hack"
+          unzip -q "$RUNNER_TEMP/Hack.zip" -d "$RUNNER_TEMP/Hack"
+
+      - name: Build and verify fonts
+        run: |
+          python scripts/build-hack-herdr-font.py             --base-dir "$RUNNER_TEMP/Hack"             --output-dir "$RUNNER_TEMP/font-build"
+          cmp             "$RUNNER_TEMP/font-build/SHA256SUMS"             assets/fonts/hack-herdr/EXPECTED_SHA256SUMS
+
+      - name: Assemble redistribution bundle
+        run: |
+          bundle="$RUNNER_TEMP/HackHerdrNerdFont"
+          mkdir -p "$bundle"
+          cp "$RUNNER_TEMP/font-build"/HackHerdrNerdFont-*.ttf "$bundle/"
+          cp "$RUNNER_TEMP/font-build/SHA256SUMS" "$bundle/"
+          cp assets/fonts/hack-herdr/NOTICE.md "$bundle/"
+          cp -R assets/fonts/hack-herdr/licenses "$bundle/"
+          cp docs/font-iterm2.md "$bundle/INSTALL.md"
+          (
+            cd "$RUNNER_TEMP"
+            zip -qr "$GITHUB_WORKSPACE/HackHerdrNerdFont.zip" HackHerdrNerdFont
+          )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HackHerdrNerdFont
+          path: HackHerdrNerdFont.zip
+          if-no-files-found: error
+
+      - name: Attach bundle to GitHub release
+        if: github.event_name == 'release' || inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
+          MANUAL_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag="$RELEASE_EVENT_TAG"
+          if [ -z "$tag" ]; then
+            tag="$MANUAL_TAG"
+          fi
+          gh release upload "$tag" HackHerdrNerdFont.zip --clobber

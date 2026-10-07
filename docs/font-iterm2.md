@@ -1,95 +1,106 @@
-<!-- markdownlint-disable MD013 -- Font commands, URLs and license tables contain long references. -->
+<!-- markdownlint-disable MD013 -- Font commands, URLs and license references are long. -->
 
 # iTerm2: Hack + Nerd Fonts + Herdr icons
 
 [简体中文](#简体中文)
 
 Use **Hack Herdr Nerd Font** when iTerm2 needs both the Herdr sidebar marks
-and the Nerd Font symbols used by Pi or shell prompts. Selecting the
-icon-only Herdr Agent Icons Max as the font for _all_ non-ASCII text leaves
-those other characters without glyphs.
+and Nerd Font symbols used by Pi or shell prompts. It is an optional font;
+the plugin does not select it or change terminal preferences.
 
-This optional font does not change plugin behavior or terminal preferences.
-`install.sh` does not install or select it automatically.
+The source repository intentionally does **not** carry the generated TTFs.
+A release that includes this feature publishes `HackHerdrNerdFont.zip` as a
+separate asset. The same files can be rebuilt from the pinned sources below.
 
 ## Install on macOS
 
-From this repository's root:
+1. Open the matching herdr-agent-usage GitHub release and download
+   `HackHerdrNerdFont.zip`. If that release predates this feature, use
+   [Rebuild](#rebuild) instead.
+2. Unzip it and verify the four TTFs against the included `SHA256SUMS`.
+3. Copy the four `HackHerdrNerdFont-*.ttf` files into
+   `$HOME/Library/Fonts/`.
+4. In **iTerm2 Settings → Profiles → Text**, use these settings:
 
-```bash
-mkdir -p "$HOME/Library/Fonts"
-cp assets/fonts/hack-herdr/HackHerdrNerdFont-*.ttf "$HOME/Library/Fonts/"
-```
-
-In **iTerm2 Settings → Profiles → Text**, select:
-
-| Setting                                 | Value                                      |
-| --------------------------------------- | ------------------------------------------ |
-| Font                                    | Hack Herdr Nerd Font                       |
-| Style                                   | Regular                                    |
-| Size                                    | Keep your existing size; verified at 13 pt |
-| Use a different font for non-ASCII text | Off                                        |
+| Setting | Value |
+| --- | --- |
+| Font | Hack Herdr Nerd Font |
+| Style | Regular |
+| Size | Keep your existing size; verified at 13 pt |
+| Use a different font for non-ASCII text | Off |
 
 Apply this to each profile used for local or SSH sessions. Fonts are rendered
-on the Mac: installing a font only on the SSH server does not fix iTerm2.
-If a live session retains old settings, update its Text settings or open a new
-session; do not stop Herdr or discard running agent panes just to change a font.
-To revert, select your previous font. The original fonts are not overwritten.
+on the Mac, so installing a font only on the SSH server does not fix iTerm2.
+To revert, select the previous font; this does not overwrite it.
 
 ## Contents and verification
 
-Four TTFs are supplied: Regular, Bold, Italic, and BoldItalic. Each keeps the
-corresponding Hack Nerd Font glyphs, widths, and line metrics, and adds:
+The bundle contains Regular, Bold, Italic, and BoldItalic. Each keeps the
+corresponding Hack Nerd Font character mappings, glyph widths, and line
+metrics, then adds:
 
 - 23 Herdr logos at `U+E1A0–U+E1B6`;
 - 6 Herdr status symbols at `U+E1C0–U+E1C5`.
 
 The icon outlines are scaled from 1000 to 2048 units/em. Their advance is one
-Hack cell, with the deliberate side overhang of the source **Max** face.
-The base font already includes Pi's Nerd Font glyphs and `▰/▱` gauges.
+Hack cell, with the deliberate side overhang of the source **Max** face. The
+base font already contains Pi's Nerd Font glyphs and `▰/▱` gauges.
 
-The same outlines were visually checked in iTerm2 on macOS: all 29 Herdr
-characters, Pi icons, gauges, bold/italic, Chinese, and ASCII rendered. The
-`U+2060–U+2062` state-tag prefixes produced no additional question marks.
-This is not a claim of rendering verification in other terminals.
+The original contribution was visually checked in iTerm2 on macOS with all
+29 Herdr characters, Pi icons, gauges, bold/italic, Chinese, ASCII, and the
+`U+2060–U+2062` state-tag prefixes. This is not a claim about other terminals.
 
 ## Rebuild
 
-Requirements: Python and `fonttools==4.55.0`. Download and unpack
-[Hack.zip from Nerd Fonts v3.4.0](https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Hack.zip).
-Use the directory containing `HackNerdFont-{Regular,Bold,Italic,BoldItalic}.ttf`:
+The release workflow and this command use Nerd Fonts **v3.4.0** and
+`fonttools==4.55.0`.
 
-```bash
-uv run --no-project --with fonttools==4.55.0 python   scripts/build-hack-herdr-font.py --base-dir /path/to/unpacked/Hack
+Download `Hack.zip` from the Nerd Fonts v3.4.0 release and verify:
+
+```text
+SHA256  8ca33a60c791392d872b80d26c42f2bfa914a480f9eb2d7516d9f84373c36897
 ```
 
-The bundled `assets/fonts/HerdrAgentIconsMax-Regular.ttf` is the icon input.
-`--icons` and `--output-dir` can select alternative locations. The script
-rejects conflicting character mappings instead of replacing existing glyphs;
-it checks that original character mappings, widths, line metrics, and all
-icon mappings survive saving. It never downloads inputs or modifies the base
-fonts. Rebuild explicitly after updating either source.
+Unpack it, then run from this repository:
+
+```bash
+uv run --no-project --with fonttools==4.55.0 \
+  python scripts/build-hack-herdr-font.py \
+  --base-dir /path/to/unpacked/Hack
+```
+
+Outputs go to `dist/hack-herdr/` and include a generated `SHA256SUMS`.
+For the pinned inputs, it should match
+`assets/fonts/hack-herdr/EXPECTED_SHA256SUMS`.
+
+The bundled `assets/fonts/HerdrAgentIconsMax-Regular.ttf` remains the icon
+input used by the plugin itself. The builder rejects conflicting mappings and
+verifies that original mappings, glyph widths, line metrics, and all icon
+mappings survive saving.
 
 ## Redistribution
 
-Keep [NOTICE.md](../assets/fonts/hack-herdr/NOTICE.md) and the entire adjacent
-`licenses/` directory with the TTFs. This is a locally modified font, not an
-official release by Hack, Nerd Fonts, Herdr, or any depicted vendor. The
-third-party font and icon licenses remain applicable.
+Keep `NOTICE.md`, the entire `licenses/` directory, and `SHA256SUMS` with
+the four TTFs. The release workflow packages those files together. This is a
+locally modified font, not an official Hack, Nerd Fonts, Herdr, or vendor
+release; third-party font, icon, and trademark terms remain applicable.
 
 ## 简体中文
 
-此字体保留 Hack 的文字、Nerd Font 符号及全部 Herdr 图标，适合同时使用
-Herdr、Pi 与带图标 shell 提示符的 iTerm2 用户。
+**Hack Herdr Nerd Font** 把 Hack Nerd Font 与 Herdr 的 29 个图标合到一套字体里，
+用于 iTerm2 同时需要 Herdr 侧栏图标、Pi / shell 的 Nerd Font 符号的情况。
+它是可选字体，插件不会自动选择或修改终端设置。
 
-1. 在仓库根目录执行本文的 macOS 安装命令，安装四个 TTF。
-2. 打开 **iTerm2 Settings → Profiles → Text**，选择
-   **Hack Herdr Nerd Font → Regular**，保留原字号。
-3. 关闭 **Use a different font for non-ASCII text**；每个用到的 Profile
-   都要设置。不要用只含专用图标的 Herdr Agent Icons Max 接管所有非 ASCII 字符。
-4. SSH 场景仍在 Mac 安装字体，无需改服务器。旧会话未更新时修改当前会话的
-   Text 设置或新开会话，无需停止 Herdr 或关闭运行中的 agent。
+源码仓库不再保存生成后的 TTF。包含这个功能的 herdr-agent-usage release 会把
+`HackHerdrNerdFont.zip` 作为独立附件发布；较早的 release 没有附件时，可按上面的
+Rebuild 步骤从钉死的版本自行构建。
 
-已在 macOS iTerm2 实测 23 个 Logo、6 个状态符号、Pi 图标、进度条、粗体、
-斜体及中文。原字体未覆盖，回退时选择之前的字体即可。构建命令见 Rebuild，
-分享时必须附带 NOTICE.md 与整个 licenses 目录。
+安装时解压附件、核对 `SHA256SUMS`，把四个 TTF 复制到
+`$HOME/Library/Fonts/`。然后在 **iTerm2 Settings → Profiles → Text** 中：
+
+1. 选择 **Hack Herdr Nerd Font → Regular**，保留原字号。
+2. 关闭 **Use a different font for non-ASCII text**。
+3. 每个需要的 Profile 都设置一次；SSH 也使用本地 Mac 字体，无需改服务器。
+
+回退时直接选回原字体。分享这套字体时必须同时带上 NOTICE、licenses 和
+SHA256SUMS。

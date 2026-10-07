@@ -39,7 +39,7 @@ Then follow this file from the top. Do not improvise a shorter path.
 - Herdr plugin **actions ignore extra environment variables**. Pass choices
   through `./install.sh` flags, not `export HERDR_AGENT_QUOTA_…`.
 - Use the toolchain in `rust-toolchain.toml` via rustup. Do not `brew install
-rust` or otherwise replace it.
+  rust` or otherwise replace it.
 - Ask the user only when a human has to click or look: Keychain **Always
   Allow**, reload the terminal, restart live agent panes, confirm icons.
 
@@ -48,11 +48,11 @@ rust` or otherwise replace it.
 Put user bin dirs on `PATH` before probing (`~/.local/bin`, `~/.cargo/bin`,
 `/opt/homebrew/bin`, `/usr/local/bin`).
 
-| Need             | How to check              | If missing                                                                                                                                                    |
-| ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Herdr **0.9.0+** | `herdr --version`         | Stop. The user must install Herdr first.                                                                                                                      |
-| rustup + Cargo   | `command -v rustup cargo` | Install rustup from https://rustup.rs — not a distro/Homebrew `rust` package. `cargo build` then fetches the pin in `rust-toolchain.toml` (currently 1.95.0). |
-| macOS or Linux   | `uname -s`                | This plugin does not support other platforms.                                                                                                                 |
+| Need | How to check | If missing |
+| --- | --- | --- |
+| Herdr **0.9.0+** | `herdr --version` | Stop. The user must install Herdr first. |
+| rustup + Cargo | `command -v rustup cargo` | Install rustup from https://rustup.rs — not a distro/Homebrew `rust` package. `cargo build` then fetches the pin in `rust-toolchain.toml` (currently 1.95.0). |
+| macOS or Linux | `uname -s` | This plugin does not support other platforms. |
 
 `herdr plugin link` needs a working Herdr client. If `herdr` errors, fix that
 before building.
@@ -63,19 +63,19 @@ Take the **union** of (a) binaries on `PATH`, (b) well-known config/data dirs,
 (c) kinds in `herdr agent list` JSON. Names must be the plugin's `--agent`
 tokens, not every alias you saw.
 
-| `--agent` name | Binaries                 | Extra evidence              |
-| -------------- | ------------------------ | --------------------------- |
-| `claude`       | `claude`                 | `~/.claude`                 |
-| `codex`        | `codex`                  | `~/.codex`                  |
-| `grok`         | `grok`                   | `~/.grok`                   |
-| `agy`          | `agy`                    | `~/.gemini/antigravity-cli` |
-| `opencode`     | `opencode`               | `~/.config/opencode`        |
-| `pi`           | `pi`                     | `~/.pi/agent`               |
-| `omp`          | `omp`                    | `~/.omp`                    |
-| `devin`        | `devin`                  | `~/.local/share/devin`      |
-| `muse`         | `muse`, `muse-code`      | `~/.config/muse`            |
-| `cursor`       | `cursor`, `cursor-agent` | `~/.cursor`                 |
-| `kilo`         | `kilo`                   | `~/.local/share/kilo`       |
+| `--agent` name | Binaries | Extra evidence |
+| --- | --- | --- |
+| `claude` | `claude` | `~/.claude` |
+| `codex` | `codex` | `~/.codex` |
+| `grok` | `grok` | `~/.grok` |
+| `agy` | `agy` | `~/.gemini/antigravity-cli` |
+| `opencode` | `opencode` | `~/.config/opencode` |
+| `pi` | `pi` | `~/.pi/agent` |
+| `omp` | `omp` | `~/.omp` |
+| `devin` | `devin` | `~/.local/share/devin` |
+| `muse` | `muse`, `muse-code` | `~/.config/muse` |
+| `cursor` | `cursor`, `cursor-agent` | `~/.cursor` |
+| `kilo` | `kilo` | `~/.local/share/kilo` |
 
 Supported set (append-only; do not reorder):
 `claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo`.
@@ -195,14 +195,15 @@ WezTerm: add `{ family = "Herdr Agent Icons Max" }` to an existing
 VS Code / Cursor integrated terminal: append `'Herdr Agent Icons Max'` to
 `terminal.integrated.fontFamily`.
 
-iTerm2: use the optional [Hack Herdr Nerd Font](font-iterm2.md), which combines
-the Herdr marks and Nerd Font symbols in one face. Install it on the local Mac
-even for SSH sessions, select it in Profiles → Text, and turn off the separate
-non-ASCII font. Do not select the icon-only face for all non-ASCII text.
+iTerm2: if the user also needs Nerd Font symbols, use the optional
+[Hack Herdr Nerd Font](font-iterm2.md). Install the release bundle on the Mac,
+select it in Profiles → Text, and turn off the separate non-ASCII font. SSH
+sessions still use the local Mac font.
 
-For Terminal.app, Alacritty, or Warp, this playbook does not provide a
-verified per-range map. State that limitation rather than claim rendering is
-fixed. Muse uses the text mark `◈` on purpose (no glyph in the icon-only face).
+Terminal.app, Alacritty, and Warp: this playbook has no verified per-range
+mapping. Say so rather than claiming they are fixed. Ghostty or kitty remain
+the reliable mapped-font path. Muse uses the text mark `◈` on purpose (no
+glyph in the icon-only face).
 
 6. Nested extra tabs of the same vendor on a **wide** sidebar have **no**
    brand icon by design. Only the vendor head row does.
@@ -258,18 +259,18 @@ Hooks and integrations load at session start:
 
 ## 5. When something still looks wrong
 
-| Symptom                                       | What to do                                                                                                                                                                                                                                                                                                              |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Plugin missing / sidebar rows missing         | `./install.sh` again, then `configure`. Do not hand-edit Herdr `config.toml` quota rows.                                                                                                                                                                                                                                |
-| Integration `not installed`                   | `herdr integration install <id>`, restart that pane.                                                                                                                                                                                                                                                                    |
-| Claude/Agy quota empty                        | One turn in that session.                                                                                                                                                                                                                                                                                               |
-| OMP quota empty                               | `omp usage --json --redact --provider <id>` must work.                                                                                                                                                                                                                                                                  |
-| Cursor quota empty or stuck on an old account | `cursor login` / `cursor-agent login`, then Keychain **Always Allow** as above.                                                                                                                                                                                                                                         |
-| Muse quota empty                              | `muse login` (API-key logins have no subscription quota); Keychain approve if `storage` is `keychain`.                                                                                                                                                                                                                  |
-| Kilo quota empty                              | `kilo auth list` must show a **Kilo Gateway** `oauth` login, and the pane's session must be on the Kilo Gateway backend. Kilo has no 5h/7d window: only a Kilo Pass plan has an allowance to read (30d). An account on a shared credit balance, or a pane running on OpenRouter/OpenCode Go, has no Kilo quota to show. |
-| Icons are boxes / `?`                         | Font + terminal map + reload; see §4.                                                                                                                                                                                                                                                                                   |
-| Gauges meters missing                         | Sidebar narrower than ~24 columns; widen, then `prefix+shift+r`.                                                                                                                                                                                                                                                        |
-| `gauges` still the old width                  | `prefix+shift+r`. There is no live resize publish path.                                                                                                                                                                                                                                                                 |
+| Symptom | What to do |
+| --- | --- |
+| Plugin missing / sidebar rows missing | `./install.sh` again, then `configure`. Do not hand-edit Herdr `config.toml` quota rows. |
+| Integration `not installed` | `herdr integration install <id>`, restart that pane. |
+| Claude/Agy quota empty | One turn in that session. |
+| OMP quota empty | `omp usage --json --redact --provider <id>` must work. |
+| Cursor quota empty or stuck on an old account | `cursor login` / `cursor-agent login`, then Keychain **Always Allow** as above. |
+| Muse quota empty | `muse login` (API-key logins have no subscription quota); Keychain approve if `storage` is `keychain`. |
+| Kilo quota empty | `kilo auth list` must show a **Kilo Gateway** `oauth` login, and the pane's session must be on the Kilo Gateway backend. Kilo has no 5h/7d window: only a Kilo Pass plan has an allowance to read (30d). An account on a shared credit balance, or a pane running on OpenRouter/OpenCode Go, has no Kilo quota to show. |
+| Icons are boxes / `?` | Font + terminal map + reload; see §4. |
+| Gauges meters missing | Sidebar narrower than ~24 columns; widen, then `prefix+shift+r`. |
+| `gauges` still the old width | `prefix+shift+r`. There is no live resize publish path. |
 
 ```sh
 herdr plugin action invoke refresh --plugin herdr-agent-usage
