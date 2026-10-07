@@ -1,14 +1,16 @@
 name: Hack Herdr Nerd Font bundle
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/font-bundle.yml"
+      - "scripts/build-hack-herdr-font.py"
+      - "assets/fonts/HerdrAgentIconsMax-Regular.ttf"
+      - "assets/fonts/hack-herdr/**"
+      - "docs/font-iterm2.md"
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Existing release tag to attach the bundle to; blank builds an artifact only
-        required: false
-        type: string
 
 permissions:
   contents: write
@@ -33,15 +35,15 @@ jobs:
 
       - name: Fetch pinned Hack Nerd Font
         run: |
-          curl --fail --location --retry 3             "https://github.com/ryanoasis/nerd-fonts/releases/download/${NERD_FONTS_VERSION}/Hack.zip"             --output "$RUNNER_TEMP/Hack.zip"
+          curl --fail --location --retry 3 "https://github.com/ryanoasis/nerd-fonts/releases/download/${NERD_FONTS_VERSION}/Hack.zip" --output "$RUNNER_TEMP/Hack.zip"
           echo "${HACK_ZIP_SHA256}  $RUNNER_TEMP/Hack.zip" | sha256sum --check -
           mkdir -p "$RUNNER_TEMP/Hack"
           unzip -q "$RUNNER_TEMP/Hack.zip" -d "$RUNNER_TEMP/Hack"
 
       - name: Build and verify fonts
         run: |
-          python scripts/build-hack-herdr-font.py             --base-dir "$RUNNER_TEMP/Hack"             --output-dir "$RUNNER_TEMP/font-build"
-          cmp             "$RUNNER_TEMP/font-build/SHA256SUMS"             assets/fonts/hack-herdr/EXPECTED_SHA256SUMS
+          python scripts/build-hack-herdr-font.py --base-dir "$RUNNER_TEMP/Hack" --output-dir "$RUNNER_TEMP/font-build"
+          cmp "$RUNNER_TEMP/font-build/SHA256SUMS" assets/fonts/hack-herdr/EXPECTED_SHA256SUMS
 
       - name: Assemble redistribution bundle
         run: |
@@ -64,14 +66,8 @@ jobs:
           if-no-files-found: error
 
       - name: Attach bundle to GitHub release
-        if: github.event_name == 'release' || inputs.release_tag != ''
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
-          MANUAL_TAG: ${{ inputs.release_tag }}
-        run: |
-          tag="$RELEASE_EVENT_TAG"
-          if [ -z "$tag" ]; then
-            tag="$MANUAL_TAG"
-          fi
-          gh release upload "$tag" HackHerdrNerdFont.zip --clobber
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" HackHerdrNerdFont.zip --clobber
