@@ -50,6 +50,7 @@ fn main() -> Result<()> {
             agent,
             watch_interval_seconds,
             sidebar_layout,
+            pane_titles,
             quota_percent,
             sidebar_pacing,
             statusline_pace,
@@ -66,6 +67,7 @@ fn main() -> Result<()> {
             herdr_agent_quota::cli::ConfigureOptions {
                 watch_interval_seconds,
                 sidebar_layout,
+                pane_titles,
                 quota_percent,
                 sidebar_pacing,
                 statusline_pace,

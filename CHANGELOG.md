@@ -6,6 +6,55 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sidebar grouping.** A pane that is not the Space head keeps
+  `Provider/model` beside its icon. That text is the unbold `$quota_member`
+  cell of the identity row; the bold provider cell stays empty, so Herdr does
+  not paint the row as its own Space. The label is not moved onto the later
+  model row. Focusing a Codex child keeps that icon; the icon-only path was
+  dropping it and leaving the name indented.
+- **Working icon.** A pane Herdr reports as `working` turns the brand icon
+  yellow when `state_change_seq` is newer than the last acknowledgement.
+  The watcher's one-second tick reads that seq from `agent list`. Focus
+  acknowledgement stays on the metadata snapshot. The same seq after the
+  user has already seen that streak stays white.
+
+### Added
+
+- **Pane titles.** On by default. The topic line is the tab name, then the
+  pane's scrolling terminal title. Off keeps the extracted topic in that same
+  cell. Herdr supplies the tab name only when the Space has another tab, or
+  the tab was renamed, so a lone automatic `1` shows the title by itself.
+- **MiMo Code.** A MiMo pane gets a sidebar row with the agent name, the
+  session title as the topic, and the session's context-window bar (`cx`).
+  Xiaomi publishes no quota API, so 5h/7d/30d stay empty and no billing
+  collector is registered. Context is
+  `input + output + reasoning + cache.read + cache.write` on the newest
+  main-agent step that has output, divided by the usable window: `limit.input`
+  when the catalog has one, otherwise `limit.context`, lowered by
+  `compaction.max_context` when that budget is smaller, then
+  `floor(effective × 0.9)`. Sessions come from `mimocode.db` (read-only; the
+  credential tables are never selected). When Herdr exposes an `agent_session`
+  id, that session is used; otherwise the newest root session
+  (`parent_id IS NULL`) whose directory matches the pane cwd wins, and two
+  root sessions in the same directory updated within 120 seconds publish no
+  `cx` rather than a wrong one.
+
+  The sidebar icon is the official MiMo logo in a **separate** one-glyph face
+  (`Herdr Agent MiMo`) at `U+E1B7`. HerdrAgentIconsMax stays byte-identical to
+  upstream (vendor range `U+E1A0–E1B6`); terminal maps and fontconfig append
+  both families.
+
+### Fixed
+
+- `rustls` 0.23.45 → 0.23.46 (`RUSTSEC-2026-0346`, `RUSTSEC-2026-0347`,
+  `RUSTSEC-2026-0348`, `RUSTSEC-2026-0349`). It is a `ureq` TLS dependency;
+  the collector sends bearer tokens to provider endpoints, so a
+  known-vulnerable handshake stack fails `cargo audit --deny warnings`.
+
+## [1.7.0] - 2026-10-14
+
 ### Added
 
 - Optional **Hack Herdr Nerd Font** for iTerm2: a release bundle combines
@@ -1109,21 +1158,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A popup dashboard pane, event-driven refresh, and a local snapshot cache that
   survives provider failures.
 
-[Unreleased]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.3...HEAD
-[1.6.3]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.2...v1.6.3
-[1.6.2]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.1...v1.6.2
-[1.6.1]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.0...v1.6.1
-[1.6.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.5...v1.6.0
-[1.5.5]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.4...v1.5.5
-[1.5.4]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.3...v1.5.4
-[1.5.3]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.2...v1.5.3
-[1.5.2]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.1...v1.5.2
-[1.5.1]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.0...v1.5.1
-[1.5.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v0.2.0...v1.0.0
-[0.2.0]: https://github.com/levi-qiao/herdr-agent-usage/releases/tag/v0.2.0
-[0.1.0]: https://github.com/levi-qiao/herdr-agent-usage/releases/tag/v0.1.0
+[Unreleased]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/cd6927b282...v1.7.0
+[1.6.3]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.2...v1.6.3
+[1.6.2]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.1...v1.6.2
+[1.6.1]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.5...v1.6.0
+[1.5.5]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.4...v1.5.5
+[1.5.4]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.3...v1.5.4
+[1.5.3]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.2...v1.5.3
+[1.5.2]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v0.2.0...v1.0.0
+[0.2.0]: https://github.com/guannanjiayou/herdr-agent-usage/releases/tag/v0.2.0
+[0.1.0]: https://github.com/guannanjiayou/herdr-agent-usage/releases/tag/v0.1.0

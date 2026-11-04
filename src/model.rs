@@ -116,6 +116,7 @@ pub enum Harness {
     Muse,
     Cursor,
     Kilo,
+    Mimo,
 }
 
 impl Harness {
@@ -134,6 +135,7 @@ impl Harness {
             "muse" | "muse-code" => Some(Self::Muse),
             "cursor" | "cursor-agent" | "cursor-cli" => Some(Self::Cursor),
             "kilo" | "kilo-code" | "kilocode" => Some(Self::Kilo),
+            "mimo" | "mimo-code" | "mimocode" => Some(Self::Mimo),
             _ => None,
         }
     }
@@ -149,7 +151,7 @@ impl Harness {
             Self::Devin => Some(Provider::Devin),
             Self::Muse => Some(Provider::Muse),
             Self::Cursor => Some(Provider::Cursor),
-            Self::OpenCode | Self::Pi | Self::Omp | Self::Kilo => None,
+            Self::OpenCode | Self::Pi | Self::Omp | Self::Kilo | Self::Mimo => None,
         }
     }
 
@@ -175,6 +177,7 @@ impl Harness {
             Self::Muse => "Muse",
             Self::Cursor => "Cursor",
             Self::Kilo => "Kilo",
+            Self::Mimo => "MiMo",
         }
     }
 }
@@ -1615,6 +1618,11 @@ mod tests {
             Harness::billing_for_agent("muse-code"),
             Some(Provider::Muse)
         );
+        assert_eq!(Harness::from_agent_name("mimo"), Some(Harness::Mimo));
+        assert_eq!(Harness::from_agent_name("mimo-code"), Some(Harness::Mimo));
+        assert_eq!(Harness::from_agent_name("mimocode"), Some(Harness::Mimo));
+        assert_eq!(Harness::billing_for_agent("mimo"), None);
+        assert_eq!(Harness::Mimo.display_name(), "MiMo");
     }
 
     #[test]

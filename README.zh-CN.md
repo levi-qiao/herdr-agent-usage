@@ -3,10 +3,14 @@
 在 Herdr Agent 侧栏显示模型、上下文和订阅额度——按 Space 分组，并用品牌图标承载
 agent 状态。
 
-[![CI](https://github.com/levi-qiao/herdr-agent-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/levi-qiao/herdr-agent-usage/actions/workflows/ci.yml)
+[![CI](https://github.com/guannanjiayou/herdr-agent-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/guannanjiayou/herdr-agent-usage/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [English](README.md)
+
+> **项目迁移说明：** 原维护者的 GitHub 账号（`levi-qiao`）被封，旧仓库已无法访问。
+> 本仓库是 `herdr-agent-usage` 重新建立的维护仓库，保留了原有源码与 Git 历史。
+> 后续更新和安装请使用下方的新仓库链接。
 
 <img src="docs/screenshots/sidebar-gauges.png" alt="按 Space 分组的 gauges 侧栏" width="320">
 
@@ -25,7 +29,7 @@ Grok、Codex、Devin、Cursor、Muse 按厂商；Claude 按会话所在
 credential pin，没有 pin 时按为该会话服务的 profile 与已存凭据）。无法确认计费方
 的标签页保留自己的额度行，Agy 标签页也一样。在 Herdr 自带的 agent 排序下，只有相邻的
 标签页才会共用一行；`quota` 和 `tabs` 排序会把同一账号的标签页画在一起。宽栏下主行只留图标、厂商名和额度，子行无图标，
-只显示 model、topic、cx。设置里的 1 行空格仍隔开不同 agent；同一厂商的嵌套子行贴在一起。窄栏仍平铺。
+只显示 model、topic、cx。Pane titles 默认开启时，topic 这一行是标签名，后面接 pane 会滚动的终端标题。Herdr 只在这个 Space 有多个标签、或这个标签被改过名时才填标签名，所以只剩自动编号 `1` 的 Space 这一行只有标题。设置里的 1 行空格仍隔开不同 agent；同一厂商的嵌套子行贴在一起。窄栏仍平铺。
 另一个 Space 里的同厂商仍有自己的额度行。关闭、移动或退出标签页后，剩下的标签页会立即重新分组。Agent
 order 默认按 Space 分组，组内剩余额度最少的优先；`tabs` 改为保持标签页顺序，
 `prefix+shift+o` 在两者之间切换。
@@ -38,7 +42,7 @@ order 默认按 Space 分组，组内剩余额度最少的优先；`tabs` 改为
 以及受支持的 agent CLI。
 
 ```sh
-git clone https://github.com/levi-qiao/herdr-agent-usage.git
+git clone https://github.com/guannanjiayou/herdr-agent-usage.git
 cd herdr-agent-usage
 ./install.sh
 ```
@@ -85,7 +89,7 @@ Codex 或其他编程助手。完整步骤和命令见
 品牌图标，以及我实际安装了的那些 agent CLI 的额度。不要在 ./install.sh
 结束后停手。图标变成方框或问号都算没装完。
 
-仓库：https://github.com/levi-qiao/herdr-agent-usage
+仓库：https://github.com/guannanjiayou/herdr-agent-usage
 若当前工作区已经是该仓库就直接用；否则 clone 后进入目录，严格按照
 docs/agent-setup.zh-CN.md（中文）或 docs/agent-setup.md（英文）执行。
 读不到这两个文件时，仍须做完下面全部步骤。
@@ -119,7 +123,7 @@ docs/agent-setup.zh-CN.md（中文）或 docs/agent-setup.md（英文）执行�
 4. 脚本之后：
    - herdr plugin list 必须能看到已启用的 herdr-agent-usage。
    - 等到 configure/refresh 日志 succeeded（invoke 会在 running 时就返回）。
-   - herdr integration status；已探测到且为 not installed 的，执行
+   - herdr integration status；已探测到且为 not installed 或 outdated 的，执行
      herdr integration install <id>（claude、codex、grok、opencode、pi、omp、
      devin、cursor、kilo；agy 和 muse 不需要）。用户没有的 CLI 不要装。
    - 字体：configure 会把 Herdr Agent Icons Max 拷到 ~/Library/Fonts（macOS）
@@ -169,6 +173,7 @@ herdr plugin pane open --plugin herdr-agent-usage --entrypoint settings --focus
 | Row gap | Agent 之间保留零行或一行空白 |
 | Watch interval | 30 秒–1 小时，默认 60 秒 |
 | Fields | 默认开启提供方、主题、模型、上下文、短期／长期／月度额度；cache 与 TTL 可选 |
+| Pane titles | 开启（默认）时 topic 行显示会滚动的终端标题；关闭则保留提取出的 topic。标签名和它同一行 |
 | Agent order | 按 Space 分组，组内剩余额度最少优先（默认）；按 Space 保持标签页顺序、同一账号的标签页放在一起；或使用 Herdr 自己的排序 |
 | Low quota alert | 关闭，或设置 1%–100% 的提醒阈值 |
 | Agents | Claude、Codex、Grok、Agy、OpenCode、Pi、OMP、Devin、Muse、Cursor、Kilo |
@@ -217,7 +222,7 @@ Claude/Agy 没有可靠的服务账号 ID，因此不跨会话共享观测值。
 | 现象 | 检查 |
 | --- | --- |
 | 品牌图标是方框或 `?` | 字体没装上，或当前终端没有 U+E1A0–U+E1B6 映射——见 [让 Agent 装完整](#让-agent-装完整)。`configure` 之后要重载终端。1.6.1 之前工作态的黄色 `?` 是 ZWNJ 的 bug，先升级。Muse 故意用文本标记 `◈`。宽栏里同一厂商的嵌套子行本来就没有图标。 |
-| 缺少会话数据 | 运行 `herdr integration status`，安装缺失项后重启对应 agent |
+| 缺少会话数据 | 运行 `herdr integration status`，对 `not installed` 或 `outdated` 的项执行 `herdr integration install <id>`，再重启对应 agent。Herdr 0.9.5 不再安装 Codex 的 turn hook，Codex 显示 outdated 时同样执行 `herdr integration install codex` |
 | Claude/Agy 缺少额度 | 发送一轮消息，让该会话的 StatusLine 产生观测 |
 | OMP 缺少额度 | 检查 `omp usage --json --redact --provider <id>` |
 | Devin 缺少额度 | 检查 CLI 登录；使用自定义路径时检查 `DEVIN_CREDENTIALS_FILE` |

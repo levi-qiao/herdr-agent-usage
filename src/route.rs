@@ -26,6 +26,9 @@ pub struct ResolvedPane {
     pub resolution: Resolution,
     pub identity: Option<PaneIdentity>,
     pub context: Option<ContextUsage>,
+    /// Session title when the harness's own store names one (MiMo). Muse /
+    /// Cursor / Grok summaries ride on their provider cache instead.
+    pub session_summary: Option<String>,
     /// Present only for omp panes. The omp-scoped billing target says which
     /// subscription is paying; this says which of omp's accounts, and where to
     /// ask omp about it.
@@ -70,11 +73,19 @@ pub fn resolve_with_identity(pane: &AgentPane) -> ResolvedPane {
                 pane.session.as_ref().and_then(|session| session.path()),
             )
         }
+        Harness::Mimo => {
+            return resolve_mimo_with_identity(
+                pane.session.as_ref().and_then(|session| session.id()),
+                &pane.cwd,
+                crate::mimo::MimoPaths::from_env(),
+            )
+        }
     };
     ResolvedPane {
         resolution,
         identity: None,
         context: None,
+        session_summary: None,
         omp: None,
     }
 }
@@ -86,6 +97,7 @@ fn resolve_omp_with_identity(session_path: Option<&str>) -> ResolvedPane {
         // omp inherited Pi's provider ids, so one mapping serves both.
         identity: route.session.as_ref().and_then(pi_identity),
         context: route.context,
+        session_summary: None,
         omp: route.evidence,
     }
 }
@@ -104,6 +116,7 @@ fn resolve_pi_with_identity(
         resolution: route.resolution,
         identity: route.session.as_ref().and_then(pi_identity),
         context: route.context,
+        session_summary: None,
         omp: None,
     }
 }
@@ -163,6 +176,7 @@ fn resolve_opencode_with_identity(
         resolution,
         identity,
         context,
+        session_summary: None,
         omp: None,
     }
 }
@@ -172,6 +186,7 @@ fn indeterminate_pane() -> ResolvedPane {
         resolution: Resolution::Indeterminate,
         identity: None,
         context: None,
+        session_summary: None,
         omp: None,
     }
 }
@@ -203,6 +218,7 @@ fn resolve_kilo_with_identity(session_id: Option<&str>, paths: Option<KiloPaths>
         resolution,
         identity,
         context,
+        session_summary: None,
         omp: None,
     }
 }
@@ -225,6 +241,99 @@ fn kilo_context(paths: &KiloPaths, session: &KiloSessionEvidence) -> Option<Cont
     let context_tokens = session.context_tokens?;
     let context_window = kilo_model_context_window(paths, provider_id, model_id)?;
     let used_percent = (context_tokens as f64 / context_window as f64 * 100.0).clamp(0.0, 100.0);
+    ContextUsage::new(used_percent).ok()
+}
+
+/// MiMo panes resolve from their own session store. There is no quota API, so
+/// a proven session is [`Resolution::NoSubscription`] and the row publishes
+/// identity, topic, and context only.
+fn resolve_mimo_with_identity(
+    session_id: Option<&str>,
+    cwd: &str,
+    paths: Option<crate::mimo::MimoPaths>,
+) -> ResolvedPane {
+    // The harness is always true; the model is only true when a session proves it.
+    let base = PaneIdentity {
+        provider: "MiMo".to_string(),
+        model: String::new(),
+    };
+    let Some(paths) = paths else {
+        return ResolvedPane {
+            resolution: Resolution::Indeterminate,
+            identity: Some(base),
+            context: None,
+            session_summary: None,
+            omp: None,
+        };
+    };
+    match crate::mimo::resolve_session(&paths, session_id, cwd) {
+        crate::mimo::SessionLookup::Found(session) => {
+            let model = session
+                .model_id
+                .as_deref()
+                .and_then(safe_identity_part)
+                .unwrap_or_default();
+            let context = mimo_context(&paths, &session);
+            let session_summary = session
+                .title
+                .as_deref()
+                .map(sanitize_topic)
+                .filter(|title| !title.is_empty() && title.len() <= 128);
+            ResolvedPane {
+                resolution: Resolution::NoSubscription,
+                identity: Some(PaneIdentity {
+                    provider: "MiMo".to_string(),
+                    model,
+                }),
+                context,
+                session_summary,
+                omp: None,
+            }
+        }
+        crate::mimo::SessionLookup::Missing | crate::mimo::SessionLookup::Ambiguous => {
+            ResolvedPane {
+                resolution: Resolution::Indeterminate,
+                identity: Some(base),
+                context: None,
+                session_summary: None,
+                omp: None,
+            }
+        }
+        // Locked or mid-write store: keep the previous model and cx.
+        crate::mimo::SessionLookup::Unreadable => ResolvedPane {
+            resolution: Resolution::Indeterminate,
+            identity: None,
+            context: None,
+            session_summary: None,
+            omp: None,
+        },
+    }
+}
+
+/// Topic text: control characters become spaces so a title cannot smuggle
+/// terminal escapes into the sidebar row. Length is left to `truncate_topic`.
+fn sanitize_topic(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn mimo_context(
+    paths: &crate::mimo::MimoPaths,
+    session: &crate::mimo::SessionEvidence,
+) -> Option<ContextUsage> {
+    let used = session.context_tokens?;
+    // Display window matches MiMoCode's TUI (compact-at ≈ 90% of limit.context).
+    let window = crate::mimo::display_context_window(
+        paths,
+        session.provider_id.as_deref()?,
+        session.model_id.as_deref()?,
+    )?;
+    let used_percent = (used as f64 / window as f64 * 100.0).clamp(0.0, 100.0);
     ContextUsage::new(used_percent).ok()
 }
 
@@ -279,6 +388,7 @@ mod tests {
             tokens: BTreeMap::new(),
             status: AgentStatus::Idle,
             focused: false,
+            state_change_seq: 0,
         }
     }
 
@@ -1108,5 +1218,128 @@ mod tests {
             .resolution,
             Resolution::Indeterminate
         );
+    }
+
+    fn write_mimo_fixture(
+        directory: &std::path::Path,
+        sessions: &[(&str, &str, Option<&str>, i64)],
+        messages: &[(&str, &str)],
+        parts: &[(&str, &str)],
+    ) -> crate::mimo::MimoPaths {
+        let paths = crate::mimo::MimoPaths::from_dir(directory);
+        let connection = rusqlite::Connection::open(&paths.db).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE session (
+                    id TEXT PRIMARY KEY,
+                    parent_id TEXT,
+                    directory TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL DEFAULT '',
+                    time_updated INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE message (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    agent_id TEXT NOT NULL DEFAULT 'main',
+                    time_created INTEGER NOT NULL,
+                    data TEXT NOT NULL
+                );
+                CREATE TABLE part (
+                    id TEXT PRIMARY KEY,
+                    message_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    time_created INTEGER NOT NULL,
+                    data TEXT NOT NULL
+                );",
+            )
+            .unwrap();
+        for (id, directory_path, parent, time_updated) in sessions {
+            connection
+                .execute(
+                    "INSERT INTO session (id, directory, parent_id, title, time_updated)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        *id,
+                        *directory_path,
+                        parent,
+                        format!("Topic for {id}"),
+                        *time_updated
+                    ],
+                )
+                .unwrap();
+        }
+        for (index, (session_id, data)) in messages.iter().enumerate() {
+            connection
+                .execute(
+                    "INSERT INTO message (id, session_id, time_created, data)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![format!("msg_{index}"), *session_id, index as i64 + 1, *data],
+                )
+                .unwrap();
+        }
+        for (index, (session_id, data)) in parts.iter().enumerate() {
+            connection
+                .execute(
+                    "INSERT INTO part (id, message_id, session_id, time_created, data)
+                     VALUES (?1, 'msg_0', ?2, ?3, ?4)",
+                    rusqlite::params![format!("prt_{index}"), *session_id, index as i64 + 1, *data],
+                )
+                .unwrap();
+        }
+        std::fs::write(
+            &paths.models,
+            r#"{"xiaomi":{"models":{"mimo-v2.6-pro":{"limit":{"context":1048576}}}}}"#,
+        )
+        .unwrap();
+        paths
+    }
+
+    #[test]
+    fn a_mimo_session_exposes_identity_context_and_topic_without_a_subscription() {
+        let directory = tempdir().unwrap();
+        let paths = write_mimo_fixture(
+            directory.path(),
+            &[("ses_1", "/proj", None, 100)],
+            &[(
+                "ses_1",
+                r#"{"role":"assistant","providerID":"xiaomi","modelID":"mimo-v2.6-pro"}"#,
+            )],
+            &[(
+                "ses_1",
+                r#"{"type":"step-finish","tokens":{"input":5299,"output":10,"reasoning":0,"cache":{"read":71424,"write":0}}}"#,
+            )],
+        );
+        // Occupancy 76733 / usable floor(1048576*0.9)=943718 ≈ 8.13%
+        let resolved = resolve_mimo_with_identity(None, "/proj", Some(paths));
+        assert_eq!(resolved.resolution, Resolution::NoSubscription);
+        let identity = resolved.identity.expect("identity");
+        assert_eq!(identity.provider, "MiMo");
+        assert_eq!(identity.model, "mimo-v2.6-pro");
+        let context = resolved.context.expect("context");
+        let compact = (1_048_576.0_f64 * 0.9).floor() as u64;
+        assert!((context.used_percent - 76_733.0 / compact as f64 * 100.0).abs() < 0.01);
+        assert!(context.cache.is_none());
+        assert_eq!(resolved.session_summary.as_deref(), Some("Topic for ses_1"));
+    }
+
+    #[test]
+    fn an_ambiguous_mimo_cwd_publishes_no_model_context_or_topic() {
+        let directory = tempdir().unwrap();
+        let paths = write_mimo_fixture(
+            directory.path(),
+            &[
+                ("ses_a", "/proj", None, 1000),
+                ("ses_b", "/proj", None, 1000),
+            ],
+            &[],
+            &[],
+        );
+        let resolved = resolve_mimo_with_identity(None, "/proj", Some(paths));
+        assert_eq!(resolved.resolution, Resolution::Indeterminate);
+        let identity = resolved.identity.expect("harness still named");
+        assert_eq!(identity.provider, "MiMo");
+        assert_eq!(identity.model, "");
+        assert!(resolved.context.is_none());
+        assert!(resolved.session_summary.is_none());
     }
 }

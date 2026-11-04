@@ -6,6 +6,7 @@
 #   ./install.sh --agent claude,codex
 #   ./install.sh --watch-interval-seconds 300
 #   ./install.sh --sidebar-layout packed
+#   ./install.sh --pane-titles off
 #   ./install.sh --row-gap 0
 #   ./install.sh --quota-percent used
 #   ./install.sh --sidebar-pacing on
@@ -15,12 +16,16 @@
 #   ./install.sh --low-quota-alert 10
 #
 # --agent installs only the agents you name (all, claude, codex, grok, agy,
-# opencode, pi, omp, devin, muse, cursor, kilo). Anything you leave out gets no sidebar row, no
+# opencode, pi, omp, devin, muse, cursor, kilo, mimo). Anything you leave out gets no sidebar row, no
 # statusLine entry and no hook file. The default is every supported agent.
 #
 # --sidebar-layout gauges (default) draws a meter beside each quota number.
 # packed joins cache/TTL and 5h/7d on one row. stacked puts provider, model,
 # cache, TTL, context, 5h, and 7d on their own rows without meters.
+#
+# --pane-titles on (default) replaces the topic with the scrolling terminal
+# title. off keeps the extracted topic. Either way the tab name shares that
+# line, in front of the text.
 #
 # --row-gap 1 (default) leaves one blank row between agent panes; 0 packs them
 # flush. Herdr only accepts whole rows.
@@ -71,6 +76,7 @@ source "$ROOT/scripts/herdr-action.sh"
 WATCH_INTERVAL_SECONDS=""
 AGENTS=""
 SIDEBAR_LAYOUT=""
+PANE_TITLES=""
 ROW_GAP=""
 QUOTA_PERCENT=""
 SIDEBAR_PACING=""
@@ -94,6 +100,11 @@ while (($# > 0)); do
     --sidebar-layout)
       (($# >= 2)) || { printf 'error: missing value for %s\n' "$1" >&2; exit 1; }
       SIDEBAR_LAYOUT="$2"
+      shift 2
+      ;;
+    --pane-titles)
+      (($# >= 2)) || { printf 'error: missing value for %s\n' "$1" >&2; exit 1; }
+      PANE_TITLES="$2"
       shift 2
       ;;
     --row-gap)
@@ -162,6 +173,10 @@ case "$SIDEBAR_LAYOUT" in
   ""|packed|stacked|gauges) ;;
   *) die "sidebar-layout must be packed, stacked, or gauges" ;;
 esac
+case "$PANE_TITLES" in
+  ""|on|off) ;;
+  *) die "pane-titles must be on or off" ;;
+esac
 case "$ROW_GAP" in
   ""|0|1) ;;
   *) die "row-gap must be 0 or 1" ;;
@@ -217,6 +232,7 @@ write_plugin_pref() {
 write_plugin_pref agents "$(agents_pref_value "$AGENTS")"
 write_plugin_pref watch-interval-seconds "$WATCH_INTERVAL_SECONDS"
 write_plugin_pref sidebar-layout "$SIDEBAR_LAYOUT"
+write_plugin_pref pane-titles "$PANE_TITLES"
 write_plugin_pref row-gap "$ROW_GAP"
 write_plugin_pref quota-percent "$QUOTA_PERCENT"
 write_plugin_pref sidebar-pacing "$SIDEBAR_PACING"

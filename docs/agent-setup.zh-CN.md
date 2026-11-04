@@ -10,12 +10,12 @@
 订阅额度。
 
 **完成标准是侧栏可用**，不是 `./install.sh` 返回 0。图标变成方框或 `?`、没有
-额度、Herdr integration 仍是 `not installed`，都算没装完。
+额度、Herdr integration 仍是 `not installed` 或 `outdated`，都算没装完。
 
 若当前工作区已经是本仓库，直接用。否则：
 
 ```sh
-git clone https://github.com/levi-qiao/herdr-agent-usage.git
+git clone https://github.com/guannanjiayou/herdr-agent-usage.git
 cd herdr-agent-usage
 ```
 
@@ -71,9 +71,10 @@ cd herdr-agent-usage
 | `muse` | `muse`、`muse-code` | `~/.config/muse` |
 | `cursor` | `cursor`、`cursor-agent` | `~/.cursor` |
 | `kilo` | `kilo` | `~/.local/share/kilo` |
+| `mimo` | `mimo` | `~/.local/share/mimocode` |
 
 当前支持列表（只许追加，不许重排）：
-`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo`。
+`claude,codex,grok,agy,opencode,pi,omp,devin,muse,cursor,kilo,mimo`。
 
 一个都没探测到：安装 **all**，并明确告诉用户。优先只装探测到的子集——
 `configure` 会给选中的 Claude/Agy 写 statusLine、给 Cursor 写 hooks，不要
@@ -129,10 +130,10 @@ herdr plugin action invoke configure --plugin herdr-agent-usage
 herdr integration status
 ```
 
-对每个**已探测到**、且状态为 `not installed` 的 id 执行
+对每个**已探测到**、且状态为 `not installed` 或 `outdated` 的 id 执行
 `herdr integration install <id>`：
 
-`claude`、`codex`、`grok`、`opencode`、`pi`、`omp`、`devin`、`cursor`、`kilo`。
+`claude`、`codex`、`grok`、`opencode`、`pi`、`omp`、`devin`、`cursor`、`kilo`。MiMo 没有 Herdr 原生集成；由自定义 `mimo` 代理上报（例如 mimo-code-herdr）。
 
 用户没有的不要装。选了 omp 时 `configure` 会尝试自动装；机器上没有 omp
 应跳过，而不是让整次配置失败。
@@ -143,7 +144,7 @@ herdr integration status
 
 `configure` 会把 **Herdr Agent Icons Max** 拷到 `~/Library/Fonts`（macOS）
 或 `~/.local/share/fonts`（Linux）；若 Ghostty / kitty 的配置文件**已经
-存在**，再写入带标记的 `U+E1A0–U+E1B6` / `U+E1C0–U+E1C5` 映射。它**不会**
+存在**，再写入带标记的映射：`U+E1A0–U+E1B6` / `U+E1C0–U+E1C5` → Herdr Agent Icons Max，`U+E1B7` → Herdr Agent MiMo。它**不会**
 从零创建终端配置，也不会给 WezTerm、iTerm、Alacritty、Terminal.app、Warp、
 VS Code / Cursor 集成终端写映射。
 
@@ -163,6 +164,7 @@ Ghostty：
 ```
 # BEGIN herdr-agent-usage font
 font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max"
+font-codepoint-map = U+E1B7="Herdr Agent MiMo"
 font-codepoint-map = U+E1C0-U+E1C5="Herdr Agent Icons Max"
 # END herdr-agent-usage font
 ```
@@ -175,6 +177,7 @@ kitty（`~/.config/kitty/kitty.conf`）：
 ```
 # BEGIN herdr-agent-usage font
 symbol_map U+E1A0-U+E1B6 Herdr Agent Icons Max
+symbol_map U+E1B7 Herdr Agent MiMo
 symbol_map U+E1C0-U+E1C5 Herdr Agent Icons Max
 # END herdr-agent-usage font
 ```
@@ -197,7 +200,7 @@ Terminal.app、Alacritty、Warp：本文没有经验证的按码位映射方案�
 6. 宽侧栏里，同一厂商多出来的嵌套子行**本来就没有**品牌图标，只有表头那
    一行有。这是设计，不是漏装。
 7. 1.6.1 之后品牌格仍是**黄色 `?`**，多半是当前终端没有把
-   U+E1A0–U+E1B6 交给 Herdr Agent Icons Max。1.6.1 之前工作态用了 ZWNJ，
+   U+E1A0–U+E1B6 交给 Herdr Agent Icons Max，U+E1B7 交给 Herdr Agent MiMo。1.6.1 之前工作态用了 ZWNJ，
    图标字体就会画出 `?` —— 先升级再重载终端。
 
 ### macOS 钥匙串（Cursor 和 Muse）
@@ -247,7 +250,7 @@ Hook 和 integration 只在会话启动时加载：
 | 现象 | 做什么 |
 | --- | --- |
 | 插件没有 / 侧栏行缺失 | 再跑 `./install.sh`，然后 configure。不要手改 Herdr `config.toml` 里的额度行。 |
-| integration 仍是 `not installed` | `herdr integration install <id>`，再重启该窗格。 |
+| integration 仍是 `not installed` 或 `outdated` | `herdr integration install <id>`，再重启该窗格。Herdr 0.9.5 会把 Codex 标成 `outdated`，直到重装；它不再安装 Codex 的 turn hook。 |
 | Claude/Agy 没有额度 | 在该会话发一轮。 |
 | OMP 没有额度 | `omp usage --json --redact --provider <id>` 必须能跑通。 |
 | Cursor 没有额度或仍是上一账号 | `cursor login` / `cursor-agent login`，再按上面做钥匙串 **Always Allow**。 |

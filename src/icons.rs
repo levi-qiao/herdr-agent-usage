@@ -33,6 +33,8 @@ pub fn for_harness(harness: Harness) -> &'static str {
         Harness::Grok => "\u{e1b1}",
         Harness::Agy => "\u{e1b2}",
         Harness::Devin => "\u{e1b5}",
+        // Local monogram added just past the original radar range.
+        Harness::Mimo => "\u{e1b7}",
         // Not in HerdrAgentIconsMax; keep a plain mark rather than a tofu.
         Harness::Muse => "◈",
     }
@@ -59,6 +61,7 @@ mod tests {
         assert_eq!(for_harness(Harness::Agy), "\u{e1b2}");
         assert_eq!(for_harness(Harness::Cursor), "\u{e1ab}");
         assert_eq!(for_harness(Harness::Muse), "◈");
+        assert_eq!(for_harness(Harness::Mimo), "\u{e1b7}");
     }
 
     #[test]

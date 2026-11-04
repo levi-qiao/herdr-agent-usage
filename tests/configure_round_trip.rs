@@ -1821,6 +1821,69 @@ fn watcher_keeps_a_focused_completion_green_until_focus_moves() {
 }
 
 #[test]
+fn watcher_paints_yellow_when_a_working_seq_advances_without_a_status_event() {
+    let state = tempdir().unwrap();
+    fs::write(
+        state.path().join("icon-attention.json"),
+        r#"{"seen":["wC:pH"],"seen_seq":{"wC:pH":4},"last_focused":"wC:pH"}"#,
+    )
+    .unwrap();
+    let inventory = r#"{"result":{"agents":[
+        {"agent":"grok","pane_id":"wC:pH","agent_status":"working","focused":true,
+         "state_change_seq":5,
+         "tokens":{"quota_icon":"MARK","quota_provider":"Grok","quota_provider_model":"Grok"}}
+    ]}}"#;
+    let (herdr, herdr_log, codex, _) =
+        install_logged_herdr_and_codex(state.path(), inventory, None);
+    let mut watcher = isolated_plugin_command()
+        .args([
+            "watch",
+            "--provider",
+            "all",
+            "--interval-seconds",
+            "30",
+            "--defer",
+        ])
+        .env("HERDR_PLUGIN_STATE_DIR", state.path())
+        .env("HERDR_BIN_PATH", &herdr)
+        .env("CODEX_BIN_PATH", &codex)
+        .env("XDG_DATA_HOME", state.path().join("xdg-data"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut calls = String::new();
+    while Instant::now() < deadline {
+        calls = fs::read_to_string(&herdr_log).unwrap_or_default();
+        if calls.contains("pane report-metadata wC:pH") && calls.contains('\u{2061}') {
+            break;
+        }
+        if watcher.try_wait().unwrap().is_some() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = watcher.kill();
+    let watcher_output = watcher.wait_with_output().unwrap();
+    assert!(
+        calls.contains("pane report-metadata wC:pH") && calls.contains('\u{2061}'),
+        "a newer working seq must paint yellow without a status event: {calls}; watcher: {}",
+        String::from_utf8_lossy(&watcher_output.stderr)
+    );
+    let attention: serde_json::Value =
+        serde_json::from_slice(&fs::read(state.path().join("icon-attention.json")).unwrap())
+            .unwrap();
+    assert_eq!(attention["working"], serde_json::json!(["wC:pH"]));
+    assert!(
+        attention.get("seen").is_none()
+            || attention["seen"]
+                .as_array()
+                .is_some_and(|ids| ids.is_empty())
+    );
+}
+
+#[test]
 fn focusing_a_done_pane_clears_the_teal_icon_immediately() {
     let state = tempdir().unwrap();
     let inventory = r#"{"result":{"agents":[
@@ -3227,6 +3290,39 @@ fn stacked_sidebar_layout_is_persisted_across_a_repair() {
         "explicit packed did not switch: {}",
         homes.sidebar()
     );
+}
+
+#[test]
+fn pane_titles_default_on_and_persist_off_across_repair() {
+    let root = tempdir().unwrap();
+    let homes = AgentHomes::new(root.path());
+
+    assert!(homes.configure(&["--apply"]).status.success());
+    assert!(sidebar_has_token(
+        &homes.sidebar(),
+        "terminal_title_stripped"
+    ));
+    assert!(homes
+        .configure(&["--apply", "--pane-titles", "off"])
+        .status
+        .success());
+    assert!(!sidebar_has_token(
+        &homes.sidebar(),
+        "terminal_title_stripped"
+    ));
+    assert!(homes.configure(&["--apply"]).status.success());
+    assert!(!sidebar_has_token(
+        &homes.sidebar(),
+        "terminal_title_stripped"
+    ));
+    assert!(homes
+        .configure(&["--apply", "--pane-titles", "on"])
+        .status
+        .success());
+    assert!(sidebar_has_token(
+        &homes.sidebar(),
+        "terminal_title_stripped"
+    ));
 }
 
 #[test]

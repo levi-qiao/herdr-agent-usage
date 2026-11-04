@@ -3,7 +3,7 @@
 ## Reporting
 
 Report vulnerabilities privately through
-[GitHub Security Advisories](https://github.com/levi-qiao/herdr-agent-usage/security/advisories/new).
+[GitHub Security Advisories](https://github.com/guannanjiayou/herdr-agent-usage/security/advisories/new).
 Do not include credentials in public issues. The expected initial response time
 is seven days. Security fixes target the latest release.
 
