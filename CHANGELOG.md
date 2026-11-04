@@ -57,6 +57,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `RUSTSEC-2026-0348`, `RUSTSEC-2026-0349`). It is a `ureq` TLS dependency;
   the collector sends bearer tokens to provider endpoints, so a
   known-vulnerable handshake stack fails `cargo audit --deny warnings`.
+- `zstd` 0.13.3 → 0.13.4, with `zstd-safe` 7.4.0 and `zstd-sys` 2.1.2
+  (`RUSTSEC-2026-0391`, `RUSTSEC-2026-0398`, `RUSTSEC-2026-0403`,
+  `RUSTSEC-2026-0410`). Codex reads archived rollouts through this crate.
 
 ## [1.7.0] - 2026-10-14
 
