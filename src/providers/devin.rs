@@ -951,6 +951,7 @@ mod tests {
 
     #[test]
     fn catalog_file_override_loads_from_devin_models_file() {
+        let _guard = crate::providers::test_support::env_guard();
         let dir = tempdir().unwrap();
         let path = dir.path().join("devin-models.json");
         fs::copy(
@@ -994,6 +995,7 @@ mod tests {
 
     #[test]
     fn credentials_path_resolves_via_env_override() {
+        let _guard = crate::providers::test_support::env_guard();
         let dir = tempdir().unwrap();
         let file = dir.path().join("creds.toml");
         fs::write(&file, "windsurf_api_key = \"test\"\n").unwrap();
@@ -1005,6 +1007,7 @@ mod tests {
 
     #[test]
     fn credentials_path_falls_back_to_xdg_data_home() {
+        let _guard = crate::providers::test_support::env_guard();
         let dir = tempdir().unwrap();
         std::env::set_var("XDG_DATA_HOME", dir.path());
         std::env::remove_var("DEVIN_CREDENTIALS_FILE");
@@ -1015,6 +1018,7 @@ mod tests {
 
     #[test]
     fn credentials_path_falls_back_to_home() {
+        let _guard = crate::providers::test_support::env_guard();
         std::env::remove_var("XDG_DATA_HOME");
         std::env::remove_var("DEVIN_CREDENTIALS_FILE");
         let home = std::env::var_os("HOME").expect("HOME");

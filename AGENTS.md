@@ -82,10 +82,13 @@ billing targets, refresh active/settling targets, and publish to siblings with
 the same target without reading terminal output. A finishing target stays in
 the pass until the 60-second debounce has elapsed. The interval defaults to
 60 seconds and is bounded to 30 seconds–1 hour. While a pane is working or
-has an unseen completion, the watcher also checks the metadata-only Herdr
+has an unseen completion, the watcher checks the metadata-only Herdr
 snapshot once per second. Herdr 0.9 can miss TUI focus hooks; the snapshot
 reconciles those changes without reading pane output or writing unchanged
-metadata. The watcher stays alive for unseen completions until they are seen.
+metadata. Inventory `focused` is not that acknowledgement. The same tick
+reads `herdr agent list` when a pane is in `working` or `seen`, and repaints
+the brand icon yellow when `state_change_seq` is newer than the last
+acknowledgement. The watcher stays alive for unseen completions until they are seen.
 Local stop/connection checks interrupt sleeps. Uninstall writes a stop marker.
 
 ## omp's quota does not come from a provider endpoint
@@ -145,7 +148,11 @@ at all, so a failed key beside a working one is invisible and not counted.
   caches cannot prove a current login. A failed attempt is debounced by the
   attempted identity; a different login can refresh immediately.
 - Codex rollouts provide diagnostics only. Fresh API windows replace old
-  windows, including ones an older plugin borrowed from a rollout.
+  windows, including ones an older plugin borrowed from a rollout. Herdr 0.9.5
+  no longer installs Codex turn hooks; Codex status is screen detection again,
+  and the session id still comes from `herdr integration install codex`. Do not
+  put those turn hooks back. An `outdated` Codex line is updated by reinstalling
+  that integration, not by a change in this plugin.
 - Claude/Agy StatusLine has no reliable serving-account ID. New observations
   carry `session_quota_only`; they never share windows by profile directory.
   Rebuild old mailboxes from their raw payload, not merged profile windows.
@@ -374,13 +381,29 @@ one, and setting it replaces the user's own `ui.agent_panel_sort`. Rules:
    the group's head, the role, and the pane's own position, so it moves only
    when tabs open, close, or move (the `layout` path) and never with quota.
    Positions count per Space so a change in one Space rewrites no other.
+   The topic line is a dim `tab` cell and then either `terminal_title_stripped`
+   (pane titles on, the default) or `$quota_topic`. Herdr's `tab` token is empty
+   unless that Space has more than one tab or the tab has a custom label, so a
+   lone automatic `1` renders as the title alone. Do not publish a metadata
+   token to fill that `1`, and do not make the title row bold: an empty
+   `$quota_group` lets the next bold row paint as a Space header. The bold
+   provider cell shares the icon's row. A pane that is not the Space head
+   leaves `$quota_provider` and `$quota_provider_model` empty and publishes
+   the same `Provider/model` text on `$quota_member`, the unbold cell of that
+   row, so the name stays beside the icon. Do not move it onto `$quota_model`:
+   that token is a later row. Focus rewrites icons only. A Codex child still
+   draws the flat mark beside `$quota_member`; the nested-child role deletes
+   that mark and indents the name. A bold "Codex" or "Cursor/…" on a non-head is
+   drawn as its own Space and pulls the following rows out of the group.
    `$quota_group` names the Space on the tightest pane in that workspace;
    `$quota_icon` is the vendor mark on every identity row (bundled icon font;
    Muse uses a text glyph). Working/done colour is an invisible suffix matched
    by sidebar `rules`, not a later twin token — a later `$quota_icon_done`
    hang-indents one cell under the Space name. Colour replaces Herdr's `state_icon`
    ring: yellow while working, teal for an unseen completion, white after
-   focusing that pane or moving focus away from it. Do not trust CLI `agent_status` for the teal
+   focusing that pane or moving focus away from it. A working status whose
+   `state_change_seq` is newer than that acknowledgement is a new turn and
+   paints yellow again; the same seq stays white. Do not trust CLI `agent_status` for the teal
    step — same-tab siblings finish as server `idle` while the TUI ring is
    still teal. Persist working/unseen pane ids in plugin state
    (`icon-attention.json`) and never call `herdr pane current` from

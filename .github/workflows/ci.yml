@@ -56,7 +56,39 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-audit
-      - run: cargo audit --deny warnings
+      # ureq 2.x uses webpki-roots 0.26.11, a compatibility shim which
+      # re-exports the actual certificate list from webpki-roots 1.x.
+      # RUSTSEC-2026-0381 flags the shim version even when the underlying
+      # root list is fixed. Fail closed if the shim stops forwarding to the
+      # patched 1.0.10 root list, or the TLS verifier is not patched.
+      - name: Verify patched certificate dependencies
+        run: |
+          python3 - <<'PY'
+          import sys
+          import tomllib
+
+          with open("Cargo.lock", "rb") as handle:
+              packages = tomllib.load(handle)["package"]
+
+          def packages_named(name):
+              return [p for p in packages if p["name"] == name]
+
+          roots = {p["version"]: p for p in packages_named("webpki-roots")}
+          shim = roots.get("0.26.11")
+          if set(roots) != {"0.26.11", "1.0.10"} or shim is None:
+              sys.exit(f"Unexpected webpki-roots versions: {sorted(roots)}")
+          if shim.get("dependencies") != ["webpki-roots 1.0.10"]:
+              sys.exit("Legacy webpki-roots shim must forward to patched 1.0.10")
+
+          verifier = packages_named("rustls-webpki")
+          if len(verifier) != 1 or verifier[0]["version"] != "0.103.16":
+              sys.exit("rustls-webpki must be pinned to patched 0.103.16")
+          print("TLS verifier and forwarded certificate roots are patched")
+          PY
+
+      # The only remaining match for RUSTSEC-2026-0381 is the 0.26.11
+      # compatibility shim verified above; do not suppress other advisories.
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2026-0381
 
   plugin-manifest:
     name: plugin manifest

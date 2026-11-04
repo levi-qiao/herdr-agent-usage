@@ -19,6 +19,7 @@ pub const AGENTS: &str = "agents";
 /// Active-turn poll interval, in seconds.
 pub const WATCH_INTERVAL_SECONDS: &str = "watch-interval-seconds";
 pub const SIDEBAR_LAYOUT: &str = "sidebar-layout";
+pub const PANE_TITLES: &str = "pane-titles";
 pub const ROW_GAP: &str = "row-gap";
 pub const QUOTA_PERCENT: &str = "quota-percent";
 pub const SIDEBAR_PACING: &str = "sidebar-pacing";
@@ -29,10 +30,11 @@ pub const AGENT_ORDER: &str = "agent-order";
 pub const LOW_QUOTA_ALERT: &str = "low-quota-alert";
 
 /// Every preference a full uninstall must forget.
-pub const ALL: [&str; 11] = [
+pub const ALL: [&str; 12] = [
     AGENTS,
     WATCH_INTERVAL_SECONDS,
     SIDEBAR_LAYOUT,
+    PANE_TITLES,
     ROW_GAP,
     QUOTA_PERCENT,
     SIDEBAR_PACING,

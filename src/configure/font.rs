@@ -1,9 +1,15 @@
-//! Install the vendor icon font and map its codepoints in known terminals.
+//! Install the vendor icon font (plus the local MiMo logo face) and map
+//! codepoints in known terminals.
 //!
 //! Herdr draws the Agents sidebar inside the host terminal. Private Use Area
 //! glyphs only render when that terminal loads `Herdr Agent Icons Max` for
-//! `U+E1A0`–`U+E1B6`. Without the map, the cells are tofu — so configure
-//! always tries to install both.
+//! `U+E1A0`–`U+E1B6` and `U+E1C0`–`U+E1C5`, and `Herdr Agent MiMo` for
+//! `U+E1B7`. Without the map, the cells are tofu — so configure always tries
+//! to install both faces.
+//!
+//! The vendor face is byte-identical to hhdebb/herdr-radar. Do not rewrite it;
+//! inject nothing into it. MiMo lives in its own one-glyph TTF so a logo
+//! change can never disturb Grok or the rest of the radar set.
 
 use crate::identity::{self, PLUGIN_ID};
 use anyhow::{Context, Result};
@@ -14,21 +20,36 @@ use std::path::{Path, PathBuf};
 const FONT_FAMILY: &str = "Herdr Agent Icons Max";
 const FONT_BASENAME: &str = "HerdrAgentIconsMax";
 const FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/HerdrAgentIconsMax-Regular.ttf");
-/// Same ranges herdr-radar maps: vendor logos, then state marks kept so a
-/// shared Ghostty/kitty map stays compatible if both plugins are linked.
-const CODEPOINT_RANGES: [(&str, &str); 2] = [("E1A0", "E1B6"), ("E1C0", "E1C5")];
-const OWNED_FONT_FILE: &str = "owned-font";
 
-/// Copy the font into the user font directory and write Ghostty / kitty maps
+const MIMO_FONT_FAMILY: &str = "Herdr Agent MiMo";
+const MIMO_FONT_BASENAME: &str = "HerdrAgentMiMo";
+const MIMO_FONT_BYTES: &[u8] = include_bytes!("../../assets/fonts/HerdrAgentMiMo-Regular.ttf");
+
+/// Vendor + state marks (herdr-radar compatibility). `E1B7` is the MiMo
+/// logo face, mapped separately so the vendor TTF never changes.
+const VENDOR_RANGES: [(&str, &str); 2] = [("E1A0", "E1B6"), ("E1C0", "E1C5")];
+const MIMO_RANGE: (&str, &str) = ("E1B7", "E1B7");
+const OWNED_FONT_FILE: &str = "owned-font";
+const OWNED_MIMO_FONT_FILE: &str = "owned-mimo-font";
+
+/// Copy both faces into the user font directory and write Ghostty / kitty maps
 /// when those configs already exist. Never creates a terminal config from
 /// scratch.
 pub fn install(state_dir: &Path) -> Result<Vec<String>> {
-    let mut notes = install_font(state_dir)?;
+    let mut notes = install_font(state_dir, FONT_BYTES, FONT_BASENAME, OWNED_FONT_FILE)?;
+    notes.extend(install_font(
+        state_dir,
+        MIMO_FONT_BYTES,
+        MIMO_FONT_BASENAME,
+        OWNED_MIMO_FONT_FILE,
+    )?);
+    notes.extend(install_fontconfig()?);
     let mapped = configure_terminals()?;
     if mapped.is_empty() {
         notes.push(
-            "font: no Ghostty/kitty config found; map U+E1A0-U+E1B6 to \"Herdr Agent Icons Max\" \
-             in your terminal if icons show as boxes"
+            "font: no Ghostty/kitty config found; map U+E1A0-U+E1B6 and U+E1C0-U+E1C5 to \
+             \"Herdr Agent Icons Max\", and U+E1B7 to \"Herdr Agent MiMo\", in your terminal \
+             if icons show as boxes"
                 .into(),
         );
     } else {
@@ -37,25 +58,98 @@ pub fn install(state_dir: &Path) -> Result<Vec<String>> {
     Ok(notes)
 }
 
-fn install_font(state_dir: &Path) -> Result<Vec<String>> {
+/// Ptyxis (and any fontconfig client) has no per-codepoint map. STIX Two Math
+/// claims the same PUA, so prepend the owning face per codepoint.
+fn install_fontconfig() -> Result<Vec<String>> {
+    let Some(dir) = fontconfig_conf_dir() else {
+        return Ok(vec!["fontconfig: no user config dir".into()]);
+    };
+    fs::create_dir_all(&dir).with_context(|| format!("create fontconfig dir {}", dir.display()))?;
+    let path = dir.join("79-herdr-agent-usage.conf");
+    let body = fontconfig_xml();
+    if fs::read_to_string(&path).ok().as_deref() == Some(body.as_str()) {
+        return Ok(vec![format!(
+            "fontconfig: already up to date ({})",
+            path.display()
+        )]);
+    }
+    fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+    Ok(vec![format!(
+        "fontconfig: wrote {} — restart the terminal so it reloads",
+        path.display()
+    )])
+}
+
+fn fontconfig_conf_dir() -> Option<PathBuf> {
+    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".config")))?;
+    Some(xdg.join("fontconfig/conf.d"))
+}
+
+fn fontconfig_xml() -> String {
+    fn prepend(family: &str, codepoints: &[u32]) -> String {
+        let ints = codepoints
+            .iter()
+            .map(|cp| format!("<int>0x{cp:x}</int>"))
+            .collect::<Vec<_>>()
+            .join("");
+        format!(
+            "  <match target=\"pattern\">\n\
+             \x20   <test name=\"charset\" compare=\"contains\">\n\
+             \x20     <charset>{ints}</charset>\n\
+             \x20   </test>\n\
+             \x20   <edit name=\"family\" mode=\"prepend\" binding=\"strong\"><string>{family}</string></edit>\n\
+             \x20 </match>"
+        )
+    }
+    let mut vendor: Vec<u32> = Vec::new();
+    for (start, end) in VENDOR_RANGES {
+        let start = u32::from_str_radix(start, 16).unwrap_or(0);
+        let end = u32::from_str_radix(end, 16).unwrap_or(0);
+        vendor.extend(start..=end);
+    }
+    // One match per codepoint: charset nodes inside a single test are ANDed.
+    let mut matches = vec![prepend(MIMO_FONT_FAMILY, &[0xE1B7])];
+    for cp in vendor {
+        matches.push(prepend(FONT_FAMILY, &[cp]));
+    }
+    format!(
+        "<?xml version=\"1.0\"?>\n\
+         <!DOCTYPE fontconfig SYSTEM \"urn:fontconfig:fonts.dtd\">\n\
+         <fontconfig>\n\
+         \x20 <!-- BEGIN herdr-agent-usage font -->\n\
+         \x20 <!-- STIX Two Math also claims this PUA range. -->\n\
+         {}\n\
+         \x20 <!-- END herdr-agent-usage font -->\n\
+         </fontconfig>\n",
+        matches.join("\n")
+    )
+}
+
+fn install_font(
+    state_dir: &Path,
+    bytes: &[u8],
+    basename: &str,
+    owned_file: &str,
+) -> Result<Vec<String>> {
     let mut notes = Vec::new();
     let dir = user_font_dir();
     fs::create_dir_all(&dir).with_context(|| format!("create font dir {}", dir.display()))?;
-    let hash = font_hash();
-    let target = dir.join(format!("{FONT_BASENAME}-{hash}.ttf"));
+    let hash = short_hash(bytes);
+    let target = dir.join(format!("{basename}-{hash}.ttf"));
     if target.exists() {
         notes.push(format!("font: already installed ({})", target.display()));
     } else {
-        fs::write(&target, FONT_BYTES)
-            .with_context(|| format!("write font {}", target.display()))?;
-        fs::write(state_dir.join(OWNED_FONT_FILE), hash.as_bytes())
-            .context("record installed font ownership")?;
+        fs::write(&target, bytes).with_context(|| format!("write font {}", target.display()))?;
+        fs::write(state_dir.join(owned_file), hash.as_bytes())
+            .with_context(|| format!("record {basename} ownership"))?;
         notes.push(format!("font: installed {}", target.display()));
     }
     Ok(notes)
 }
 
-/// Remove only config blocks we marked and a font file this installation
+/// Remove only config blocks we marked and font files this installation
 /// created. A pre-existing shared font must remain available to other tools.
 pub fn uninstall(state_dir: &Path) -> Result<()> {
     for target in terminal_targets() {
@@ -70,9 +164,32 @@ pub fn uninstall(state_dir: &Path) -> Result<()> {
             })?;
         }
     }
-    let marker = state_dir.join(OWNED_FONT_FILE);
-    if fs::read_to_string(&marker).ok().as_deref() == Some(font_hash().as_str()) {
-        let target = user_font_dir().join(format!("{FONT_BASENAME}-{}.ttf", font_hash()));
+    if let Some(dir) = fontconfig_conf_dir() {
+        let path = dir.join("79-herdr-agent-usage.conf");
+        if path.exists() {
+            fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+        }
+    }
+    remove_owned_font(state_dir, FONT_BYTES, FONT_BASENAME, OWNED_FONT_FILE)?;
+    remove_owned_font(
+        state_dir,
+        MIMO_FONT_BYTES,
+        MIMO_FONT_BASENAME,
+        OWNED_MIMO_FONT_FILE,
+    )?;
+    Ok(())
+}
+
+fn remove_owned_font(
+    state_dir: &Path,
+    bytes: &[u8],
+    basename: &str,
+    owned_file: &str,
+) -> Result<()> {
+    let hash = short_hash(bytes);
+    let marker = state_dir.join(owned_file);
+    if fs::read_to_string(&marker).ok().as_deref() == Some(hash.as_str()) {
+        let target = user_font_dir().join(format!("{basename}-{hash}.ttf"));
         match fs::remove_file(&target) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -80,7 +197,7 @@ pub fn uninstall(state_dir: &Path) -> Result<()> {
                 return Err(error).with_context(|| format!("remove font {}", target.display()))
             }
         }
-        fs::remove_file(marker).context("remove installed font ownership marker")?;
+        fs::remove_file(marker).with_context(|| format!("remove {basename} ownership marker"))?;
     }
     Ok(())
 }
@@ -129,14 +246,8 @@ fn terminal_targets() -> Vec<TerminalTarget> {
     let xdg = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".config"));
-    let ghostty_lines = CODEPOINT_RANGES
-        .into_iter()
-        .map(|(start, end)| format!("font-codepoint-map = U+{start}-U+{end}=\"{FONT_FAMILY}\""))
-        .collect::<Vec<_>>();
-    let kitty_lines = CODEPOINT_RANGES
-        .into_iter()
-        .map(|(start, end)| format!("symbol_map U+{start}-U+{end} {FONT_FAMILY}"))
-        .collect::<Vec<_>>();
+    let ghostty_lines = map_lines(Format::Ghostty);
+    let kitty_lines = map_lines(Format::Kitty);
     let mut targets = Vec::new();
     for name in ["config", "config.ghostty"] {
         targets.push(TerminalTarget {
@@ -161,6 +272,31 @@ fn terminal_targets() -> Vec<TerminalTarget> {
         reload: "reload kitty (ctrl+shift+f5) or reopen the terminal",
     });
     targets
+}
+
+enum Format {
+    Ghostty,
+    Kitty,
+}
+
+fn map_lines(format: Format) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (start, end) in VENDOR_RANGES {
+        match format {
+            Format::Ghostty => lines.push(format!(
+                "font-codepoint-map = U+{start}-U+{end}=\"{FONT_FAMILY}\""
+            )),
+            Format::Kitty => lines.push(format!("symbol_map U+{start}-U+{end} {FONT_FAMILY}")),
+        }
+    }
+    let (start, end) = MIMO_RANGE;
+    match format {
+        Format::Ghostty => lines.push(format!(
+            "font-codepoint-map = U+{start}-U+{end}=\"{MIMO_FONT_FAMILY}\""
+        )),
+        Format::Kitty => lines.push(format!("symbol_map U+{start}-U+{end} {MIMO_FONT_FAMILY}")),
+    }
+    lines
 }
 
 fn marked_block(lines: Vec<String>) -> String {
@@ -240,8 +376,8 @@ fn user_font_dir() -> PathBuf {
         .join("fonts")
 }
 
-fn font_hash() -> String {
-    format!("{:x}", Sha256::digest(FONT_BYTES))[..8].to_string()
+fn short_hash(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))[..8].to_string()
 }
 
 #[cfg(test)]
@@ -250,18 +386,13 @@ mod tests {
 
     #[test]
     fn upsert_is_idempotent() {
-        let body = marked_block(
-            CODEPOINT_RANGES
-                .into_iter()
-                .map(|(start, end)| {
-                    format!("font-codepoint-map = U+{start}-U+{end}=\"{FONT_FAMILY}\"")
-                })
-                .collect(),
-        );
+        let body = marked_block(map_lines(Format::Ghostty));
         let first = upsert_marked("# existing\n", &body);
         let again = upsert_marked(&first, &body);
         assert_eq!(first, again);
         assert!(first.contains("font-codepoint-map"));
+        assert!(first.contains("Herdr Agent Icons Max"));
+        assert!(first.contains("Herdr Agent MiMo"));
         let start = identity::font_marker_start(PLUGIN_ID);
         assert_eq!(first.matches(&start).count(), 1);
         assert_eq!(remove_marked(&first), Some("# existing\n".into()));
@@ -284,9 +415,37 @@ mod tests {
     }
 
     #[test]
-    fn bundled_font_is_present() {
+    fn bundled_fonts_are_present_and_distinct() {
         assert!(FONT_BYTES.len() > 1000);
-        assert_eq!(font_hash().len(), 8);
+        assert!(MIMO_FONT_BYTES.len() > 500);
+        let vendor = short_hash(FONT_BYTES);
+        let mimo = short_hash(MIMO_FONT_BYTES);
+        assert_eq!(vendor.len(), 8);
+        assert_eq!(mimo.len(), 8);
+        assert_ne!(vendor, mimo);
+    }
+
+    #[test]
+    fn mimo_range_is_separate_from_the_vendor_face() {
+        let lines = map_lines(Format::Ghostty);
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("U+E1B6=\"Herdr Agent Icons Max\"")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("U+E1B7=\"Herdr Agent MiMo\"")));
+        assert!(!lines
+            .iter()
+            .any(|line| line.contains("U+E1B7=\"Herdr Agent Icons Max\"")));
+    }
+
+    #[test]
+    fn fontconfig_prepends_each_face_for_its_own_codepoints() {
+        let xml = fontconfig_xml();
+        assert!(xml.contains("<int>0xe1b7</int>"));
+        assert!(xml.contains("Herdr Agent MiMo"));
+        assert!(xml.contains("Herdr Agent Icons Max"));
+        assert!(xml.contains("<charset><int>0xe1b1</int></charset>"));
     }
 
     #[test]

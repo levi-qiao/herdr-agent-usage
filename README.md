@@ -35,7 +35,11 @@ its own row, and so does every Agy tab. Under Herdr's own agent order only
 adjacent tabs share a row; the `quota` and `tabs` orders draw every tab of one
 account together. On a
 wide sidebar, the vendor icon and name sit above that pane's quota, and extra
-tabs list model, topic, and context with no icon. A settings row gap of 1 still
+tabs list model, topic, and context with no icon. With pane titles on (the
+default), that topic line is the tab name and then the pane's scrolling
+terminal title. Herdr fills the tab name only when the Space has more than one
+tab, or the tab was renamed, so a Space whose only tab is still the automatic
+`1` shows the title by itself. A settings row gap of 1 still
 separates different agents; nested extra tabs of the same vendor stay flush.
 Closing, moving, or leaving a tab regroups the tabs left behind right away.
 Agent order defaults to Space grouping with least quota left first inside each space;
@@ -136,8 +140,8 @@ Rules:
 4. After the script:
    - herdr plugin list must show herdr-agent-usage enabled.
    - Wait for configure/refresh logs to succeed (invoke returns while running).
-   - herdr integration status; for each detected agent that is "not installed",
-     herdr integration install <id> (claude, codex, grok, opencode, pi, omp,
+   - herdr integration status; for each detected agent that is "not installed"
+     or "outdated", herdr integration install <id> (claude, codex, grok, opencode, pi, omp,
      devin, cursor, kilo — not agy or muse). Skip CLIs the user does not have.
    - Font: configure copies Herdr Agent Icons Max to ~/Library/Fonts (macOS) or
      ~/.local/share/fonts (Linux) and maps Ghostty/kitty only if those configs
@@ -186,6 +190,7 @@ herdr plugin pane open --plugin herdr-agent-usage --entrypoint settings --focus
 | Row gap | Zero or one blank line between agents |
 | Watch interval | 30 seconds–1 hour; default 60 seconds |
 | Fields | Provider, topic, model, context, short/long/monthly quota on by default; cache and TTL optional |
+| Pane titles | On (default) puts the scrolling terminal title on the topic line; off keeps the extracted topic. The tab name shares that line |
 | Agent order | Group by Space, least quota left first (default); by Space in tab order with one account's tabs together; or Herdr's own policy |
 | Low quota alert | Off or a threshold from 1% to 100% |
 | Agents | Claude, Codex, Grok, Agy, OpenCode, Pi, OMP, Devin, Muse, Cursor, Kilo |
@@ -267,7 +272,7 @@ turn failures into zero usage.
 | Symptom | Check |
 | --- | --- |
 | Brand icons are boxes or `?` | The icon font is missing or this terminal has no U+E1A0–U+E1B6 map — see [Ask an agent to finish setup](#ask-an-agent-to-finish-setup). Reload the terminal after `configure`. A yellow `?` on a build older than 1.6.1 was the working-state ZWNJ bug; upgrade. Muse uses the text mark `◈` on purpose. Nested extra tabs of vendors other than Codex have no icon by design. |
-| Session data is missing | Run `herdr integration status`; load missing integrations before restarting the affected agent |
+| Session data is missing | Run `herdr integration status`; install any line that says `not installed` or `outdated`, then restart that agent. Herdr 0.9.5 stops shipping Codex turn hooks, so an outdated Codex integration is updated the same way: `herdr integration install codex` |
 | Claude/Agy quota is missing | Send a turn so the session's StatusLine produces an observation |
 | OpenCode Go quota looks frozen | The console login is the source; without it the per-key endpoint is used, and a key that stopped serving traffic keeps its last reading. Sign in with `/connect` so a console login exists, then refresh |
 | OMP quota is missing | A row reading `restart pane: no omp session` means Herdr itself has no session for that pane: run `herdr integration install omp` (or reload the plugin, which repairs it at startup) and restart the pane. A row reading `first turn writes the omp session` clears on its own. Otherwise check `omp usage --json --redact --provider <id>` |

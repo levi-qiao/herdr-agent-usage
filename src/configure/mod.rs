@@ -9,7 +9,7 @@ mod statusline;
 
 use crate::cache::CacheStore;
 use crate::cli::{
-    AgentOrder, AgentSelection, BrandColors, ConfigureOptions, FieldSet, LowQuotaAlert,
+    AgentOrder, AgentSelection, BrandColors, ConfigureOptions, FieldSet, LowQuotaAlert, PaneTitles,
     PercentStyle, SidebarLayout, SidebarPacing, SidebarRowGap, StatuslinePace,
 };
 use crate::model::Harness;
@@ -77,6 +77,7 @@ pub fn run(
             apply_agent_order(AgentOrder::Default);
             cache.clear_watch_interval()?;
             cache.clear_sidebar_layout()?;
+            cache.clear_pane_titles()?;
             cache.clear_row_gap()?;
             cache.clear_percent_style()?;
             cache.clear_sidebar_pacing()?;
@@ -113,6 +114,9 @@ pub fn run(
         let layout = resolved_sidebar_layout(options.sidebar_layout, Some(&cache));
         cache.set_sidebar_layout(layout)?;
         prefs::write(prefs::SIDEBAR_LAYOUT, layout.as_str())?;
+        let pane_titles = resolved_pane_titles(options.pane_titles, Some(&cache));
+        cache.set_pane_titles(pane_titles)?;
+        prefs::write(prefs::PANE_TITLES, pane_titles.as_str())?;
         let gap = resolved_row_gap(options.row_gap, Some(&cache));
         cache.set_row_gap(gap)?;
         prefs::write(prefs::ROW_GAP, &gap.to_string())?;
@@ -143,7 +147,7 @@ pub fn run(
         }
         cache.set_low_quota_alert(alert)?;
         prefs::write(prefs::LOW_QUOTA_ALERT, &alert.to_string())?;
-        herdr::apply(agents, layout, gap, fields, brand)?;
+        herdr::apply(agents, layout, gap, fields, brand, pane_titles)?;
         for note in font::install(cache.root())? {
             println!("{note}");
         }
@@ -172,6 +176,7 @@ pub fn run(
     } else {
         let cache = CacheStore::from_env().ok();
         let layout = resolved_sidebar_layout(options.sidebar_layout, cache.as_ref());
+        let pane_titles = resolved_pane_titles(options.pane_titles, cache.as_ref());
         let gap = resolved_row_gap(options.row_gap, cache.as_ref());
         let percent = resolved_percent_style(options.quota_percent, cache.as_ref());
         let pacing = resolved_sidebar_pacing(options.sidebar_pacing, cache.as_ref());
@@ -180,7 +185,7 @@ pub fn run(
         let brand = resolved_brand_colors(options.brand_colors, cache.as_ref());
         let order = resolved_agent_order(options.agent_order, cache.as_ref());
         let alert = resolved_low_quota_alert(options.low_quota_alert, cache.as_ref());
-        herdr::check(agents, layout, gap, fields, brand)?;
+        herdr::check(agents, layout, gap, fields, brand, pane_titles)?;
         println!("Quota percentages show {} quota.", percent.suffix());
         println!("Sidebar pacing: {}.", pacing.as_str());
         println!("Claude statusLine pace: {}.", statusline_pace.as_str());
@@ -212,6 +217,16 @@ pub(crate) fn resolved_sidebar_layout(
             prefs::read(prefs::SIDEBAR_LAYOUT).and_then(|value| SidebarLayout::parse(&value))
         })
         .or_else(|| cache.and_then(CacheStore::sidebar_layout))
+        .unwrap_or_default()
+}
+
+pub(crate) fn resolved_pane_titles(
+    explicit: Option<PaneTitles>,
+    cache: Option<&CacheStore>,
+) -> PaneTitles {
+    PaneTitles::from_arg_or_env(explicit)
+        .or_else(|| prefs::read(prefs::PANE_TITLES).and_then(|value| PaneTitles::parse(&value)))
+        .or_else(|| cache.and_then(CacheStore::pane_titles))
         .unwrap_or_default()
 }
 

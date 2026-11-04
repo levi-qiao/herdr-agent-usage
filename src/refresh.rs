@@ -2,10 +2,10 @@ use crate::cache::CacheStore;
 use crate::cli::{AgentSelection, LowQuotaAlert};
 use crate::herdr::{
     current_focused_pane, find_agent_icon_panes, find_agent_pane, focused_pane_in_snapshot,
-    list_agent_panes, list_agent_state, plugin_quota_present, publish_icon_tokens,
-    publish_pane_tokens, publish_pane_tokens_with_scrolled_icons, publish_status_icons,
-    refresh_pane_topic, vendor_stack_keys, AgentPane, AgentStatus, PaneQuotaUpdate, PaneTokens,
-    PanelOrder, PayerEvidence, QuotaGroups, STACK_TOKEN,
+    list_agent_panes, list_agent_panes_for_icons, list_agent_state, plugin_quota_present,
+    publish_icon_tokens, publish_pane_tokens, publish_pane_tokens_with_scrolled_icons,
+    publish_status_icons, refresh_pane_topic, vendor_stack_keys, AgentPane, AgentStatus,
+    PaneQuotaUpdate, PaneTokens, PanelOrder, PayerEvidence, QuotaGroups, STACK_TOKEN,
 };
 use crate::model::{
     BillingTarget, CredentialScope, Harness, Provider, ProviderSnapshot, Resolution,
@@ -323,6 +323,7 @@ fn wait_for_watch_tick(
             break;
         }
         poll_focus_once(cache);
+        poll_working_icons_once(cache);
         thread::sleep(
             Duration::from_secs(1).min(deadline.saturating_duration_since(Instant::now())),
         );
@@ -342,6 +343,35 @@ fn poll_focus_once(cache: &CacheStore) {
     if attention.last_focused.as_deref() != Some(pane_id.as_str()) {
         let _ = paint_focus_icons(cache, Some(&pane_id));
     }
+}
+
+/// Screen-detected status can advance `state_change_seq` without a status
+/// event. Repaint yellow from that seq. Inventory `focused` is not a focus
+/// acknowledgement; that stays on the snapshot.
+fn poll_working_icons_once(cache: &CacheStore) {
+    let attention = cache.icon_attention();
+    if attention.working.is_empty() && attention.seen.is_empty() {
+        return;
+    }
+    let Ok(mut panes) = list_agent_panes_for_icons() else {
+        return;
+    };
+    let enabled = AgentSelection::from_args_or_env(&[]);
+    panes.retain(|pane| enabled.contains(&pane.harness));
+    if panes.is_empty() {
+        return;
+    }
+    if apply_icon_attention(&mut panes, cache, None, false, false).is_err() {
+        return;
+    }
+    let dirty = panes
+        .into_iter()
+        .filter(|pane| pane.tokens.contains_key("quota_icon") && pane.icon_needs_update())
+        .collect::<Vec<_>>();
+    if dirty.is_empty() {
+        return;
+    }
+    let _ = publish_icon_tokens(&dirty, CacheStore::now_millis());
 }
 
 /// Refresh working, settling, or expired-quota targets, then publish that
@@ -484,11 +514,11 @@ fn handle_event(event: &Value) -> Result<()> {
     // current returns the finisher and would skip teal for every completion.
     // `handle_named_pane` folds the working set into status before publish.
     // Pi's and omp's exact session files carry the routing evidence, and
-    // Muse/Cursor transcripts record the prompt itself. Reading their panes
-    // would add a visible repaint without improving attribution or the topic.
+    // Muse/Cursor/MiMo transcripts record the prompt itself. Reading their
+    // panes would add a visible repaint without improving attribution or the topic.
     let topic_pane = (!matches!(
         harness,
-        Harness::Pi | Harness::Omp | Harness::Muse | Harness::Cursor
+        Harness::Pi | Harness::Omp | Harness::Muse | Harness::Cursor | Harness::Mimo
     ))
     .then_some(pane_id);
     let result = handle_named_pane(
@@ -613,6 +643,7 @@ fn apply_icon_attention(
         attention.working.retain(|id| live.contains(id));
         attention.unseen.retain(|id| live.contains(id));
         attention.seen.retain(|id| live.contains(id));
+        attention.seen_seq.retain(|id, _| live.contains(id));
     }
     if hydrate {
         for pane in panes.iter() {
@@ -646,27 +677,34 @@ fn apply_icon_attention(
             // unseen completion on the next idle watch pass.
             if green_on_screen {
                 attention.unseen.remove(&pane.pane_id);
-                attention.seen.insert(pane.pane_id.clone());
+                note_seen(&mut attention, pane);
                 attention.working.remove(&pane.pane_id);
                 pane.status = AgentStatus::Idle;
                 continue;
             }
             if !pane.status.is_working() {
                 attention.unseen.remove(&pane.pane_id);
-                attention.seen.insert(pane.pane_id.clone());
+                note_seen(&mut attention, pane);
             }
         }
         if pane.status.is_working() {
-            // Inventory may continue saying `working` after a completed pane
-            // was acknowledged. Only a fresh working status event starts a
-            // new turn; polling the stale inventory must keep the icon white.
-            if attention.seen.contains(&pane.pane_id) && !working_event {
+            // The same `state_change_seq` after an acknowledgement is the
+            // working streak the user already saw. A newer seq is a new turn,
+            // including a Codex screen-detection change that never arrived as
+            // a status event. Missing seqs stay on the old "event only" rule.
+            let acknowledged = attention.seen_seq.get(&pane.pane_id).copied();
+            let same_streak = match acknowledged {
+                Some(seq) => pane.state_change_seq <= seq,
+                None => pane.state_change_seq == 0,
+            };
+            let stale = !working_event && attention.seen.contains(&pane.pane_id) && same_streak;
+            if stale {
                 pane.status = AgentStatus::Idle;
                 continue;
             }
             attention.working.insert(pane.pane_id.clone());
             attention.unseen.remove(&pane.pane_id);
-            attention.seen.remove(&pane.pane_id);
+            forget_seen(&mut attention, &pane.pane_id);
             continue;
         }
         if !matches!(pane.status, AgentStatus::Idle | AgentStatus::Done) {
@@ -675,14 +713,14 @@ fn apply_icon_attention(
         let was_working = attention.working.remove(&pane.pane_id)
             || (!attention.seen.contains(&pane.pane_id) && tokens_show_working_icon(&pane.tokens));
         if was_working {
-            attention.seen.remove(&pane.pane_id);
+            forget_seen(&mut attention, &pane.pane_id);
             attention.unseen.insert(pane.pane_id.clone());
         } else if pane.status == AgentStatus::Done && !attention.seen.contains(&pane.pane_id) {
             attention.unseen.insert(pane.pane_id.clone());
         }
         if acknowledge {
             attention.unseen.remove(&pane.pane_id);
-            attention.seen.insert(pane.pane_id.clone());
+            note_seen(&mut attention, pane);
         }
         pane.status = if attention.unseen.contains(&pane.pane_id) {
             AgentStatus::Done
@@ -693,7 +731,22 @@ fn apply_icon_attention(
     if let Some(pane_id) = force_seen {
         attention.last_focused = Some(pane_id.to_owned());
     }
+    attention
+        .seen_seq
+        .retain(|id, _| attention.seen.contains(id));
     cache.set_icon_attention(&attention)
+}
+
+fn note_seen(attention: &mut crate::cache::IconAttention, pane: &AgentPane) {
+    attention.seen.insert(pane.pane_id.clone());
+    attention
+        .seen_seq
+        .insert(pane.pane_id.clone(), pane.state_change_seq);
+}
+
+fn forget_seen(attention: &mut crate::cache::IconAttention, pane_id: &str) {
+    attention.seen.remove(pane_id);
+    attention.seen_seq.remove(pane_id);
 }
 
 fn paint_focus_icons(cache: &CacheStore, force_idle_id: Option<&str>) -> Result<()> {
@@ -909,14 +962,15 @@ fn publish_row(cache: &CacheStore) -> RowStyle {
     }
 }
 
-/// Muse last prompt and Cursor/Grok generated session titles are the same
-/// evidence other harnesses read off the screen, so they are also that pane's
-/// topic. Codex keeps a screen topic and stores the thread preview separately.
+/// Muse last prompt, Cursor/Grok generated session titles, and MiMo's
+/// `session.title` are the same evidence other harnesses read off the screen,
+/// so they are also that pane's topic. Codex keeps a screen topic and stores
+/// the thread preview separately.
 fn apply_session_summary(pane: &mut AgentPane, summary: &str) {
     pane.session_summary = summary.to_string();
     if matches!(
         pane.harness,
-        Harness::Muse | Harness::Cursor | Harness::Grok
+        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Mimo
     ) {
         pane.topic = summary.to_string();
     }
@@ -934,8 +988,12 @@ fn resolved_pane_tokens(
         resolution,
         identity,
         context,
+        session_summary,
         omp,
     } = resolved;
+    if let Some(summary) = session_summary.as_deref().filter(|s| !s.trim().is_empty()) {
+        apply_session_summary(pane, summary);
+    }
     let mut quota = match resolution {
         Resolution::Subscription(target)
             if target.credential_scope == CredentialScope::OMP_STORE =>
@@ -2147,11 +2205,12 @@ mod tests {
             tokens: BTreeMap::new(),
             status: AgentStatus::Idle,
             focused: false,
+            state_change_seq: 0,
         }
     }
 
     #[test]
-    fn muse_cursor_and_grok_session_summaries_replace_the_topic() {
+    fn muse_cursor_grok_and_mimo_session_summaries_replace_the_topic() {
         let mut muse = test_pane("w1:p1", Harness::Muse);
         muse.topic = "old prompt".to_string();
         apply_session_summary(&mut muse, "new prompt");
@@ -2168,11 +2227,28 @@ mod tests {
         apply_session_summary(&mut grok, "Chat honesty: unsupported answers");
         assert_eq!(grok.topic, "Chat honesty: unsupported answers");
 
+        let mut mimo = test_pane("w1:p5", Harness::Mimo);
+        mimo.topic = "old prompt".to_string();
+        apply_session_summary(&mut mimo, "MiMo Agent Name Like Grok");
+        assert_eq!(mimo.topic, "MiMo Agent Name Like Grok");
+
         let mut codex = test_pane("w1:p2", Harness::Codex);
         codex.topic = "screen topic".to_string();
         apply_session_summary(&mut codex, "thread name");
         assert_eq!(codex.topic, "screen topic");
         assert_eq!(codex.session_summary, "thread name");
+    }
+
+    #[test]
+    fn mimo_event_path_never_reads_the_pane() {
+        // Same exclusion as Pi/omp/Muse/Cursor: the session DB is the evidence.
+        let harness = Harness::Mimo;
+        let topic_pane = (!matches!(
+            harness,
+            Harness::Pi | Harness::Omp | Harness::Muse | Harness::Cursor | Harness::Mimo
+        ))
+        .then_some("w1:p1");
+        assert_eq!(topic_pane, None);
     }
 
     fn test_pane_with_session(id: &str, harness: Harness, session: &str) -> AgentPane {
@@ -2231,6 +2307,7 @@ mod tests {
             resolution: Resolution::Indeterminate,
             identity: None,
             context: None,
+            session_summary: None,
             omp: None,
         };
         let mut published = None;
@@ -2385,6 +2462,7 @@ mod tests {
                     ),
                     identity: None,
                     context: None,
+                    session_summary: None,
                     omp: None,
                 };
                 let published = resolved_pane_tokens(
@@ -2446,6 +2524,7 @@ mod tests {
             resolution: Resolution::Indeterminate,
             identity: None,
             context: None,
+            session_summary: None,
             omp: None,
         };
         let published = resolved_pane_tokens(
@@ -2557,6 +2636,7 @@ mod tests {
                 model: "model-b".to_string(),
             }),
             context: None,
+            session_summary: None,
             omp: None,
         };
         let published = resolved_pane_tokens(
@@ -4332,6 +4412,68 @@ mod tests {
         assert_eq!(pane.icon_status(), AgentStatus::Idle);
         pane.status = AgentStatus::Working;
         apply_icon_attention(std::slice::from_mut(&mut pane), &cache, None, false, true).unwrap();
+        assert_eq!(pane.icon_status(), AgentStatus::Working);
+    }
+
+    #[test]
+    fn a_newer_working_seq_paints_yellow_without_a_status_event() {
+        let dir = tempdir().unwrap();
+        let cache = CacheStore::new(dir.path());
+        let mut pane = test_pane("wC:pH", Harness::Codex);
+        pane.focused = true;
+        pane.status = AgentStatus::Idle;
+        pane.state_change_seq = 4;
+        apply_icon_attention(
+            std::slice::from_mut(&mut pane),
+            &cache,
+            Some("wC:pH"),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(cache.icon_attention().seen_seq.get("wC:pH"), Some(&4));
+
+        // Codex screen detection advances the seq when the turn starts. The
+        // status hook may not reach this process; the icon still goes yellow.
+        pane.status = AgentStatus::Working;
+        pane.state_change_seq = 5;
+        apply_icon_attention(std::slice::from_mut(&mut pane), &cache, None, false, false).unwrap();
+        assert_eq!(pane.icon_status(), AgentStatus::Working);
+        assert!(cache.icon_attention().working.contains("wC:pH"));
+        assert!(!cache.icon_attention().seen.contains("wC:pH"));
+    }
+
+    #[test]
+    fn the_acknowledged_working_seq_stays_white() {
+        let dir = tempdir().unwrap();
+        let cache = CacheStore::new(dir.path());
+        let mut pane = test_pane("wC:pH", Harness::Codex);
+        pane.focused = true;
+        pane.status = AgentStatus::Working;
+        pane.state_change_seq = 7;
+        let mut attention = cache.icon_attention();
+        attention.unseen.insert("wC:pH".into());
+        cache.set_icon_attention(&attention).unwrap();
+
+        apply_icon_attention(
+            std::slice::from_mut(&mut pane),
+            &cache,
+            Some("wC:pH"),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(pane.icon_status(), AgentStatus::Idle);
+        assert_eq!(cache.icon_attention().seen_seq.get("wC:pH"), Some(&7));
+
+        pane.status = AgentStatus::Working;
+        pane.state_change_seq = 7;
+        apply_icon_attention(std::slice::from_mut(&mut pane), &cache, None, false, false).unwrap();
+        assert_eq!(pane.icon_status(), AgentStatus::Idle);
+
+        pane.status = AgentStatus::Working;
+        pane.state_change_seq = 8;
+        apply_icon_attention(std::slice::from_mut(&mut pane), &cache, None, false, false).unwrap();
         assert_eq!(pane.icon_status(), AgentStatus::Working);
     }
 

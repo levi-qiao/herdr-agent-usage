@@ -4,10 +4,6 @@ use crate::providers::statusline::{parse_context, parse_model};
 use crate::providers::ProviderError;
 use serde_json::Value;
 
-/// Fallback key lists used when the active pool cannot be determined.
-const FIVE_HOUR_KEYS: [&str; 2] = ["gemini-5h", "3p-5h"];
-const WEEKLY_KEYS: [&str; 2] = ["gemini-weekly", "3p-weekly"];
-
 /// Spellings whose value is already a `0..=1` fraction.
 const FRACTION_KEYS: [&str; 2] = ["remaining_fraction", "remainingFraction"];
 /// Spellings whose value is a `0..=100` percentage.
@@ -15,43 +11,60 @@ const PERCENT_KEYS: [&str; 2] = ["remaining_percent", "remainingPercentage"];
 
 const GEMINI_FIVE_HOUR_KEYS: [&str; 1] = ["gemini-5h"];
 const GEMINI_WEEKLY_KEYS: [&str; 1] = ["gemini-weekly"];
+const GEMINI_ARGON_WEEKLY_KEYS: [&str; 1] = ["gemini-argon-wtu-weekly"];
 const THIRD_PARTY_FIVE_HOUR_KEYS: [&str; 1] = ["3p-5h"];
 const THIRD_PARTY_WEEKLY_KEYS: [&str; 1] = ["3p-weekly"];
 /// Third-party (Claude/GPT) pool shown as `api` while Gemini is the active model.
 const THIRD_PARTY_API_KEYS: [&str; 2] = ["3p-5h", "3p-weekly"];
 
 /// The quota pool that the active model draws from.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pool {
     Gemini,
+    GeminiArgon,
     ThirdParty,
 }
 
 impl Pool {
     fn five_hour_keys(self) -> &'static [&'static str] {
         match self {
-            Self::Gemini => &GEMINI_FIVE_HOUR_KEYS,
+            Self::Gemini | Self::GeminiArgon => &GEMINI_FIVE_HOUR_KEYS,
             Self::ThirdParty => &THIRD_PARTY_FIVE_HOUR_KEYS,
         }
     }
 
-    fn weekly_keys(self) -> &'static [&'static str] {
+    fn weekly_keys(self, quota: &serde_json::Map<String, Value>) -> &'static [&'static str] {
         match self {
             Self::Gemini => &GEMINI_WEEKLY_KEYS,
+            Self::GeminiArgon => {
+                if has_any_key(quota, &GEMINI_ARGON_WEEKLY_KEYS) {
+                    &GEMINI_ARGON_WEEKLY_KEYS
+                } else {
+                    &GEMINI_WEEKLY_KEYS
+                }
+            }
             Self::ThirdParty => &THIRD_PARTY_WEEKLY_KEYS,
         }
     }
 }
 
+fn has_any_key(quota: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
+    keys.iter().any(|key| quota.contains_key(*key))
+}
+
 /// Detect which quota pool the active model draws from.
 ///
 /// Gemini-family model names contain `gemini`, `flash`, or `learnlm`.
+/// Gemini Argon models contain `argon` and draw their weekly quota from
+/// `gemini-argon-wtu-weekly`.
 /// Third-party model names include Claude variants (`claude`, `sonnet`,
 /// `haiku`, `opus`), GPT models, and OpenAI reasoning series (`o1`, `o3`,
 /// `o4`). Unknown names require an unambiguous single-pool response.
 fn active_pool(model: Option<&str>) -> Option<Pool> {
     let lower = model?.to_ascii_lowercase();
-    if lower.contains("gemini") || lower.contains("flash") || lower.contains("learnlm") {
+    if lower.contains("argon") {
+        Some(Pool::GeminiArgon)
+    } else if lower.contains("gemini") || lower.contains("flash") || lower.contains("learnlm") {
         Some(Pool::Gemini)
     } else if lower.contains("claude")
         || lower.contains("sonnet")
@@ -83,21 +96,27 @@ pub fn parse_statusline(
         .and_then(Value::as_object)
         .ok_or_else(|| ProviderError::UnsupportedResponse("missing quota".to_string()))?;
     let model = parse_model(value);
-    let has_gemini = FIVE_HOUR_KEYS[..1]
-        .iter()
-        .chain(WEEKLY_KEYS[..1].iter())
-        .any(|key| quota.contains_key(*key));
-    let has_third_party = FIVE_HOUR_KEYS[1..]
-        .iter()
-        .chain(WEEKLY_KEYS[1..].iter())
-        .any(|key| quota.contains_key(*key));
-    let pool = active_pool(model.as_deref()).or(match (has_gemini, has_third_party) {
-        (true, false) => Some(Pool::Gemini),
-        (false, true) => Some(Pool::ThirdParty),
+    let has_gemini_five_hour = has_any_key(quota, &GEMINI_FIVE_HOUR_KEYS);
+    let has_gemini_weekly = has_any_key(quota, &GEMINI_WEEKLY_KEYS);
+    let has_argon_weekly = has_any_key(quota, &GEMINI_ARGON_WEEKLY_KEYS);
+    let has_third_party = has_any_key(quota, &THIRD_PARTY_FIVE_HOUR_KEYS)
+        || has_any_key(quota, &THIRD_PARTY_WEEKLY_KEYS);
+    let has_any_pool =
+        has_gemini_five_hour || has_gemini_weekly || has_argon_weekly || has_third_party;
+    let fallback_pool = match (
+        has_gemini_five_hour,
+        has_gemini_weekly,
+        has_argon_weekly,
+        has_third_party,
+    ) {
+        (_, _, false, false) if has_gemini_five_hour || has_gemini_weekly => Some(Pool::Gemini),
+        (_, false, true, false) => Some(Pool::GeminiArgon),
+        (false, false, false, true) => Some(Pool::ThirdParty),
         _ => None,
-    });
+    };
+    let pool = active_pool(model.as_deref()).or(fallback_pool);
     let five_hour_keys: &[&str] = pool.map_or(&[] as &[&str], Pool::five_hour_keys);
-    let weekly_keys: &[&str] = pool.map_or(&[] as &[&str], Pool::weekly_keys);
+    let weekly_keys: &[&str] = pool.map_or(&[] as &[&str], |p| p.weekly_keys(quota));
     let mut windows = Vec::new();
     for (kind, keys) in [
         (WindowKind::FiveHour, five_hour_keys),
@@ -110,7 +129,7 @@ pub fn parse_statusline(
     // Gemini sessions still have a third-party API pool. Publish it on the
     // spare monthly slot as `api` so it does not replace the Gemini 5h/7d
     // rows. A Claude/GPT session already uses that pool for 5h/7d.
-    if matches!(pool, Some(Pool::Gemini)) {
+    if matches!(pool, Some(Pool::Gemini | Pool::GeminiArgon)) {
         if let Some(window) = parse_window(
             quota,
             WindowKind::Monthly,
@@ -120,7 +139,7 @@ pub fn parse_statusline(
             windows.push(window.with_source_window("api", None));
         }
     }
-    if windows.is_empty() && (pool.is_some() || (!has_gemini && !has_third_party)) {
+    if windows.is_empty() && (pool.is_some() || !has_any_pool) {
         return Err(ProviderError::UnsupportedResponse(
             "quota has no supported windows".to_string(),
         ));
@@ -410,6 +429,75 @@ mod tests {
                 .display_label(),
             "api"
         );
+    }
+
+    #[test]
+    fn routes_gemini_argon_model_to_argon_weekly_quota() {
+        let value = json!({
+            "model": {"display_name": "Gemini 4 Argon (High)"},
+            "quota": {
+                "gemini-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
+                "gemini-weekly": {"remaining_fraction": 0.9477867, "reset_in_seconds": 371488},
+                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.5464704, "reset_in_seconds": 450186},
+                "3p-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
+                "3p-weekly": {"remaining_fraction": 0.4997628, "reset_in_seconds": 473570}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 100.0);
+        assert_remaining_pct(&snapshot, WindowKind::Weekly, 54.64704);
+        assert_eq!(
+            snapshot.window(WindowKind::Weekly).unwrap().resets_at,
+            Some(ResetAt::from_unix_seconds(450186))
+        );
+        assert_remaining_pct(&snapshot, WindowKind::Monthly, 49.97628);
+        assert_eq!(
+            snapshot
+                .window(WindowKind::Monthly)
+                .unwrap()
+                .display_label(),
+            "api"
+        );
+    }
+
+    #[test]
+    fn gemini_argon_falls_back_to_gemini_weekly_when_argon_bucket_missing() {
+        let value = json!({
+            "model": {"display_name": "Gemini 4 Argon"},
+            "quota": {
+                "gemini-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 1000},
+                "gemini-weekly": {"remaining_fraction": 0.85, "reset_in_seconds": 7200}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 100.0);
+        assert_remaining_pct(&snapshot, WindowKind::Weekly, 85.0);
+    }
+
+    #[test]
+    fn parses_unambiguous_argon_weekly_bucket_without_model() {
+        let value = json!({
+            "quota": {
+                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.46, "reset_in_seconds": 3600}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert!(snapshot.window(WindowKind::FiveHour).is_none());
+        assert_remaining_pct(&snapshot, WindowKind::Weekly, 46.0);
+    }
+
+    #[test]
+    fn an_unknown_model_does_not_guess_between_gemini_and_argon_weekly_pools() {
+        let value = json!({
+            "model": {"display_name": "Future Model XYZ"},
+            "quota": {
+                "gemini-5h": {"remaining_fraction": 0.9, "reset_in_seconds": 1000},
+                "gemini-weekly": {"remaining_fraction": 0.85, "reset_in_seconds": 7200},
+                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.46, "reset_in_seconds": 3600}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert!(snapshot.windows.is_empty());
     }
 
     #[test]

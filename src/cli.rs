@@ -89,7 +89,7 @@ pub enum Command {
         #[arg(long, conflicts_with_all = ["check", "apply"])]
         uninstall: bool,
         /// Agents to configure: all, claude, codex, grok, agy, opencode, pi,
-        /// omp, devin, muse, cursor, kilo. Repeat or comma-separate to pick several. Defaults to
+        /// omp, devin, muse, cursor, kilo, mimo. Repeat or comma-separate to pick several. Defaults to
         /// every supported agent (or $HERDR_AGENT_QUOTA_AGENTS when set), so
         /// `--uninstall` alone still removes everything this plugin installed.
         #[arg(long, value_delimiter = ',')]
@@ -104,6 +104,10 @@ pub enum Command {
         /// install.sh passes this through $HERDR_AGENT_QUOTA_SIDEBAR_LAYOUT.
         #[arg(long, value_enum)]
         sidebar_layout: Option<SidebarLayout>,
+        /// Replace the topic line with the pane's scrolling terminal title.
+        /// Off keeps the extracted topic. On by default.
+        #[arg(long, value_enum)]
+        pane_titles: Option<PaneTitles>,
         /// Whether quota percentages read as remaining (default) or used.
         /// Herdr plugin actions run a fixed command line, so install.sh
         /// passes this through $HERDR_AGENT_QUOTA_PERCENT.
@@ -203,6 +207,7 @@ pub enum AgentSelection {
     Muse,
     Cursor,
     Kilo,
+    Mimo,
 }
 
 /// How quota tokens are arranged in Herdr's agent sidebar.
@@ -221,6 +226,42 @@ pub enum SidebarLayout {
     Packed,
     /// One field per row (provider, model, cache, TTL, context, 5h, 7d).
     Stacked,
+}
+
+/// Whether managed sidebar rows show each pane's terminal title.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum PaneTitles {
+    #[default]
+    On,
+    Off,
+}
+
+impl PaneTitles {
+    pub const ENV: &'static str = "HERDR_AGENT_QUOTA_PANE_TITLES";
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "on" | "true" => Some(Self::On),
+            "off" | "false" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    pub fn from_arg_or_env(value: Option<Self>) -> Option<Self> {
+        value.or_else(|| {
+            std::env::var(Self::ENV)
+                .ok()
+                .as_deref()
+                .and_then(Self::parse)
+        })
+    }
 }
 
 /// A quota field the sidebar can be told to leave out.
@@ -516,6 +557,7 @@ impl BrandColors {
 pub struct ConfigureOptions {
     pub watch_interval_seconds: Option<u64>,
     pub sidebar_layout: Option<SidebarLayout>,
+    pub pane_titles: Option<PaneTitles>,
     pub quota_percent: Option<PercentStyle>,
     pub sidebar_pacing: Option<SidebarPacing>,
     pub statusline_pace: Option<StatuslinePace>,
@@ -927,7 +969,7 @@ impl AgentSelection {
     /// New agents are appended, never inserted, so a saved complete list from
     /// an earlier build is a proper prefix of this array and can still mean
     /// "everything on" after a provider is added.
-    pub const SUPPORTED: [Harness; 11] = [
+    pub const SUPPORTED: [Harness; 12] = [
         Harness::Claude,
         Harness::Codex,
         Harness::Grok,
@@ -939,6 +981,7 @@ impl AgentSelection {
         Harness::Muse,
         Harness::Cursor,
         Harness::Kilo,
+        Harness::Mimo,
     ];
 
     /// Length of the first complete list the settings pane persisted.
@@ -966,6 +1009,7 @@ impl AgentSelection {
             Self::Muse => Some(Harness::Muse),
             Self::Cursor => Some(Harness::Cursor),
             Self::Kilo => Some(Harness::Kilo),
+            Self::Mimo => Some(Harness::Mimo),
         }
     }
 
@@ -982,6 +1026,7 @@ impl AgentSelection {
             Harness::Muse => "muse",
             Harness::Cursor => "cursor",
             Harness::Kilo => "kilo",
+            Harness::Mimo => "mimo",
         }
     }
 
@@ -1059,6 +1104,7 @@ impl AgentSelection {
             "muse" => Some(Self::Muse),
             "cursor" => Some(Self::Cursor),
             "kilo" => Some(Self::Kilo),
+            "mimo" => Some(Self::Mimo),
             _ => None,
         }
     }
@@ -1428,6 +1474,18 @@ mod tests {
         assert_eq!(
             SidebarLayout::from_arg_or_env(Some(SidebarLayout::Stacked)),
             Some(SidebarLayout::Stacked)
+        );
+    }
+
+    #[test]
+    fn pane_titles_default_on_and_parse_values() {
+        assert_eq!(PaneTitles::default(), PaneTitles::On);
+        assert_eq!(PaneTitles::parse(" on "), Some(PaneTitles::On));
+        assert_eq!(PaneTitles::parse("OFF"), Some(PaneTitles::Off));
+        assert_eq!(PaneTitles::parse("junk"), None);
+        assert_eq!(
+            PaneTitles::from_arg_or_env(Some(PaneTitles::Off)),
+            Some(PaneTitles::Off)
         );
     }
 

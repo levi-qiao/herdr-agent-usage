@@ -1,6 +1,6 @@
 use crate::cli::{
-    AgentOrder, BrandColors, FieldSet, LowQuotaAlert, PercentStyle, SidebarLayout, SidebarPacing,
-    SidebarRowGap, StatuslinePace,
+    AgentOrder, BrandColors, FieldSet, LowQuotaAlert, PaneTitles, PercentStyle, SidebarLayout,
+    SidebarPacing, SidebarRowGap, StatuslinePace,
 };
 use crate::identity::PLUGIN_ID;
 use crate::model::{
@@ -22,6 +22,7 @@ pub const MAX_WATCH_INTERVAL_SECONDS: u64 = 60 * 60;
 const WATCH_INTERVAL_ENV: &str = "HERDR_AGENT_QUOTA_WATCH_INTERVAL_SECONDS";
 const WATCH_INTERVAL_FILE: &str = "watch-interval-seconds";
 const SIDEBAR_LAYOUT_FILE: &str = "sidebar-layout";
+const PANE_TITLES_FILE: &str = "pane-titles";
 const ROW_GAP_FILE: &str = "row-gap";
 const QUOTA_PERCENT_FILE: &str = "quota-percent";
 const SIDEBAR_PACING_FILE: &str = "sidebar-pacing";
@@ -49,6 +50,10 @@ pub struct IconAttention {
     pub unseen: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub seen: BTreeSet<String>,
+    /// `state_change_seq` when the pane was acknowledged. A later working
+    /// status at this same seq is the streak the user already saw.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub seen_seq: BTreeMap<String, u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_focused: Option<String>,
 }
@@ -618,6 +623,26 @@ impl CacheStore {
         }
     }
 
+    pub fn pane_titles(&self) -> Option<PaneTitles> {
+        fs::read_to_string(self.pane_titles_path())
+            .ok()
+            .as_deref()
+            .and_then(PaneTitles::parse)
+    }
+
+    pub fn set_pane_titles(&self, value: PaneTitles) -> Result<()> {
+        self.ensure()?;
+        fs::write(self.pane_titles_path(), value.as_str()).context("write pane title preference")
+    }
+
+    pub fn clear_pane_titles(&self) -> Result<()> {
+        match fs::remove_file(self.pane_titles_path()) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).context("remove pane title preference"),
+        }
+    }
+
     pub fn row_gap(&self) -> Option<SidebarRowGap> {
         fs::read_to_string(self.row_gap_path())
             .ok()
@@ -1003,6 +1028,10 @@ impl CacheStore {
 
     fn sidebar_layout_path(&self) -> PathBuf {
         self.root.join(SIDEBAR_LAYOUT_FILE)
+    }
+
+    fn pane_titles_path(&self) -> PathBuf {
+        self.root.join(PANE_TITLES_FILE)
     }
 
     fn row_gap_path(&self) -> PathBuf {

@@ -13,8 +13,8 @@
 
 use crate::cache::CacheStore;
 use crate::cli::{
-    AgentOrder, AgentSelection, FieldSet, LowQuotaAlert, PercentStyle, SidebarField, SidebarLayout,
-    SidebarPacing, SidebarRowGap, StatuslinePace,
+    AgentOrder, AgentSelection, FieldSet, LowQuotaAlert, PaneTitles, PercentStyle, SidebarField,
+    SidebarLayout, SidebarPacing, SidebarRowGap, StatuslinePace,
 };
 use crate::model::Harness;
 use crate::prefs;
@@ -44,6 +44,7 @@ enum Choice {
     Pacing,
     StatuslinePace,
     Layout,
+    PaneTitles,
     RowGap,
     Interval,
     Order,
@@ -57,6 +58,7 @@ impl Choice {
             Self::Pacing => "Sidebar pacing",
             Self::StatuslinePace => "StatusLine pace",
             Self::Layout => "Sidebar layout",
+            Self::PaneTitles => "Pane titles",
             Self::RowGap => "Row gap",
             Self::Interval => "Watch interval",
             Self::Order => "Agent order",
@@ -72,6 +74,7 @@ fn rows() -> Vec<Row> {
         Row::Choice(Choice::Pacing),
         Row::Choice(Choice::StatuslinePace),
         Row::Choice(Choice::Layout),
+        Row::Choice(Choice::PaneTitles),
         Row::Choice(Choice::RowGap),
         Row::Choice(Choice::Interval),
         Row::Choice(Choice::Order),
@@ -91,6 +94,7 @@ pub struct Settings {
     pacing: SidebarPacing,
     statusline_pace: StatuslinePace,
     layout: SidebarLayout,
+    pane_titles: PaneTitles,
     gap: SidebarRowGap,
     interval_seconds: u64,
     order: AgentOrder,
@@ -115,6 +119,7 @@ impl Settings {
             pacing: crate::configure::resolved_sidebar_pacing(None, cache),
             statusline_pace: crate::configure::resolved_statusline_pace(None, cache),
             layout: crate::configure::resolved_sidebar_layout(None, cache),
+            pane_titles: crate::configure::resolved_pane_titles(None, cache),
             gap: crate::configure::resolved_row_gap(None, cache),
             interval_seconds: cache
                 .map(CacheStore::watch_interval_seconds)
@@ -132,6 +137,7 @@ impl Settings {
             Choice::Pacing => self.pacing.as_str().to_string(),
             Choice::StatuslinePace => self.statusline_pace.as_str().to_string(),
             Choice::Layout => self.layout.as_str().to_string(),
+            Choice::PaneTitles => self.pane_titles.as_str().to_string(),
             Choice::RowGap => self.gap.to_string(),
             Choice::Interval => format_interval(self.interval_seconds),
             Choice::Order => self.order.as_str().to_string(),
@@ -167,6 +173,10 @@ impl Settings {
                     true => "a meter beside each quota number",
                     false => "sidebar too narrow: renders as stacked",
                 },
+            },
+            Choice::PaneTitles => match self.pane_titles {
+                PaneTitles::On => "scrolling title replaces topic",
+                PaneTitles::Off => "keep the extracted topic",
             },
             Choice::RowGap => match self.gap.as_u8() {
                 0 => "panes packed flush",
@@ -237,6 +247,12 @@ impl Settings {
                 let next = (current as i8 + step).rem_euclid(count);
                 self.layout = SidebarLayout::CHOICES[next as usize];
             }
+            Row::Choice(Choice::PaneTitles) => {
+                self.pane_titles = match self.pane_titles {
+                    PaneTitles::On => PaneTitles::Off,
+                    PaneTitles::Off => PaneTitles::On,
+                }
+            }
             Row::Choice(Choice::RowGap) => {
                 self.gap = match self.gap.as_u8() {
                     0 => SidebarRowGap::SEPARATED,
@@ -301,6 +317,8 @@ impl Settings {
             self.statusline_pace.as_str().to_string(),
             "--sidebar-layout".to_string(),
             self.layout.as_str().to_string(),
+            "--pane-titles".to_string(),
+            self.pane_titles.as_str().to_string(),
             "--row-gap".to_string(),
             self.gap.to_string(),
             "--fields".to_string(),
@@ -637,6 +655,7 @@ mod tests {
             pacing: SidebarPacing::Off,
             statusline_pace: StatuslinePace::Off,
             layout: SidebarLayout::Gauges,
+            pane_titles: PaneTitles::On,
             gap: SidebarRowGap::SEPARATED,
             interval_seconds: 60,
             order: AgentOrder::Quota,
@@ -676,6 +695,10 @@ mod tests {
 
         draft.cycle(Row::Choice(Choice::Layout), 1);
         assert_eq!(draft.layout, SidebarLayout::Packed);
+        draft.cycle(Row::Choice(Choice::PaneTitles), 1);
+        assert_eq!(draft.pane_titles, PaneTitles::Off);
+        draft.cycle(Row::Choice(Choice::PaneTitles), -1);
+        assert_eq!(draft.pane_titles, PaneTitles::On);
         draft.cycle(Row::Choice(Choice::RowGap), 1);
         assert_eq!(draft.gap, SidebarRowGap::FLUSH);
     }
@@ -796,6 +819,8 @@ mod tests {
                 "off",
                 "--sidebar-layout",
                 "gauges",
+                "--pane-titles",
+                "on",
                 "--row-gap",
                 "1",
                 "--fields",
