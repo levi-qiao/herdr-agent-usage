@@ -3,14 +3,10 @@
 在 Herdr Agent 侧栏显示模型、上下文和订阅额度——按 Space 分组，并用品牌图标承载
 agent 状态。
 
-[![CI](https://github.com/guannanjiayou/herdr-agent-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/guannanjiayou/herdr-agent-usage/actions/workflows/ci.yml)
+[![CI](https://github.com/levi-qiao/herdr-agent-usage/actions/workflows/ci.yml/badge.svg)](https://github.com/levi-qiao/herdr-agent-usage/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [English](README.md)
-
-> **项目迁移说明：** 原维护者的 GitHub 账号（`levi-qiao`）被封，旧仓库已无法访问。
-> 本仓库是 `herdr-agent-usage` 重新建立的维护仓库，保留了原有源码与 Git 历史。
-> 后续更新和安装请使用下方的新仓库链接。
 
 <img src="docs/screenshots/sidebar-gauges.png" alt="按 Space 分组的 gauges 侧栏" width="320">
 
@@ -42,7 +38,7 @@ order 默认按 Space 分组，组内剩余额度最少的优先；`tabs` 改为
 以及受支持的 agent CLI。
 
 ```sh
-git clone https://github.com/guannanjiayou/herdr-agent-usage.git
+git clone https://github.com/levi-qiao/herdr-agent-usage.git
 cd herdr-agent-usage
 ./install.sh
 ```
@@ -89,7 +85,7 @@ Codex 或其他编程助手。完整步骤和命令见
 品牌图标，以及我实际安装了的那些 agent CLI 的额度。不要在 ./install.sh
 结束后停手。图标变成方框或问号都算没装完。
 
-仓库：https://github.com/guannanjiayou/herdr-agent-usage
+仓库：https://github.com/levi-qiao/herdr-agent-usage
 若当前工作区已经是该仓库就直接用；否则 clone 后进入目录，严格按照
 docs/agent-setup.zh-CN.md（中文）或 docs/agent-setup.md（英文）执行。
 读不到这两个文件时，仍须做完下面全部步骤。

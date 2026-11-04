@@ -22,6 +22,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional **Hack Herdr Nerd Font** for iTerm2: a release bundle combines
+  Hack Nerd Font with all 29 bundled Herdr marks without changing plugin or
+  terminal settings. The repository keeps the reproducible builder and
+  third-party notices; generated TTFs are published with releases instead of
+  being carried in the source tree.
 - **Pane titles.** On by default. The topic line is the tab name, then the
   pane's scrolling terminal title. Off keeps the extracted topic in that same
   cell. Herdr supplies the tab name only when the Space has another tab, or
@@ -57,11 +62,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Optional **Hack Herdr Nerd Font** for iTerm2: a release bundle combines
-  Hack Nerd Font with all 29 bundled Herdr marks without changing plugin or
-  terminal settings. The repository keeps the reproducible builder and
-  third-party notices; generated TTFs are published with releases instead of
-  being carried in the source tree.
 - **Kilo Code.** A Kilo pane gets a sidebar row like any other agent: the
   context its session occupies, and the account's Kilo Pass allowance.
   Kilo publishes no 5h or 7h bucket for the Kilo Gateway — its subscription is
@@ -1158,22 +1158,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A popup dashboard pane, event-driven refresh, and a local snapshot cache that
   survives provider failures.
 
-[Unreleased]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.7.0...HEAD
-[1.7.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/cd6927b282...v1.7.0
-[1.6.3]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.2...v1.6.3
-[1.6.2]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.1...v1.6.2
-[1.6.1]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.6.0...v1.6.1
-[1.6.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.5...v1.6.0
-[1.5.5]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.4...v1.5.5
-[1.5.4]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.3...v1.5.4
-[1.5.3]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.2...v1.5.3
-[1.5.2]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.1...v1.5.2
-[1.5.1]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.5.0...v1.5.1
-[1.5.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/guannanjiayou/herdr-agent-usage/compare/v0.2.0...v1.0.0
-[0.2.0]: https://github.com/guannanjiayou/herdr-agent-usage/releases/tag/v0.2.0
-[0.1.0]: https://github.com/guannanjiayou/herdr-agent-usage/releases/tag/v0.1.0
+[Unreleased]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/cd6927b282...v1.7.0
+[1.6.3]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.2...v1.6.3
+[1.6.2]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.1...v1.6.2
+[1.6.1]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.5...v1.6.0
+[1.5.5]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.4...v1.5.5
+[1.5.4]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.3...v1.5.4
+[1.5.3]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.2...v1.5.3
+[1.5.2]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/levi-qiao/herdr-agent-usage/compare/v0.2.0...v1.0.0
+[0.2.0]: https://github.com/levi-qiao/herdr-agent-usage/releases/tag/v0.2.0
+[0.1.0]: https://github.com/levi-qiao/herdr-agent-usage/releases/tag/v0.1.0

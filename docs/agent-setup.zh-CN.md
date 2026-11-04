@@ -15,7 +15,7 @@
 若当前工作区已经是本仓库，直接用。否则：
 
 ```sh
-git clone https://github.com/guannanjiayou/herdr-agent-usage.git
+git clone https://github.com/levi-qiao/herdr-agent-usage.git
 cd herdr-agent-usage
 ```
 

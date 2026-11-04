@@ -1,7 +1,7 @@
 # Agent setup playbook
 
 Instructions for a coding agent installing
-[herdr-agent-usage](https://github.com/guannanjiayou/herdr-agent-usage) on the
+[herdr-agent-usage](https://github.com/levi-qiao/herdr-agent-usage) on the
 machine that runs Herdr. Humans: paste this file, or the prompt in the README,
 into Claude, Cursor, Grok, Codex, or any similar agent **on that machine**.
 
@@ -18,7 +18,7 @@ step. Boxes, `?` icons, missing quota, and a Herdr integration that is
 If this working tree is already the repo, use it. Otherwise:
 
 ```sh
-git clone https://github.com/guannanjiayou/herdr-agent-usage.git
+git clone https://github.com/levi-qiao/herdr-agent-usage.git
 cd herdr-agent-usage
 ```
 
