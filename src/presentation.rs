@@ -23,8 +23,9 @@ const METER_EMPTY: char = '\u{25b1}';
 const GAUGE_LABEL_WIDTH: usize = 3;
 const GAUGE_CONTEXT_LABEL: &str = "cx";
 /// A Claude percentage older than this is no longer allowed to act like
-/// current headroom. This is a product safety policy, not statusLine's redraw
-/// interval: redraws can happen without another provider response.
+/// current headroom. The clock moves when a statusLine payload includes the
+/// window, so a timer that keeps repeating the same limits stays current.
+/// It ages out only after Claude stops reporting that window.
 const CLAUDE_QUOTA_STALE_AFTER_SECONDS: u64 = 2 * 60;
 /// How many meter cells a window row can afford at `sidebar_width` columns,
 /// or `None` when the row should render through its existing non-gauge shape

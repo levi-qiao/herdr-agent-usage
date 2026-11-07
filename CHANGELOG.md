@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Claude's statusLine timer repeats the same 5h/7d limits without a new model
+  response. That repeat stays the current reading, so the sidebar keeps the
+  remaining percentage and reset time instead of replacing them with `stale`
+  after two minutes. A payload that omits `rate_limits` still keeps the
+  previous window at its old age.
 - **Sidebar grouping.** A pane that is not the Space head keeps
   `Provider/model` beside its icon. That text is the unbold `$quota_member`
   cell of the identity row; the bold provider cell stays empty, so Herdr does
