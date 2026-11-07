@@ -1149,24 +1149,18 @@ fn merge_session_quota_observations(
         let previous_observation = previous_observations
             .iter()
             .find(|observation| observation.kind == window.kind);
-        let previous_generation =
-            previous_observation.and_then(|observation| observation.api_generation.as_deref());
 
+        // This loop only sees windows the current payload named. Claude
+        // repeating the same limits on its statusLine timer is still the
+        // current report: the percentage does not expire while that report
+        // keeps arriving. A payload that omits `rate_limits` never enters
+        // this loop, so a carried-forward window keeps its old age.
+        // A legacy file has the window but no observation record. The first
+        // identical report only records a generation baseline; a changed
+        // percentage is new evidence and gets an age.
         let observed_at_unix = match (previous_window, previous_observation) {
-            (None, _) => Some(snapshot.fetched_at_unix),
-            (Some(previous_window), _) if previous_window != window => {
-                Some(snapshot.fetched_at_unix)
-            }
-            (Some(_), Some(_))
-                if api_generation.is_some() && api_generation != previous_generation =>
-            {
-                Some(snapshot.fetched_at_unix)
-            }
-            (Some(_), Some(previous_observation)) => previous_observation.observed_at_unix,
-            // A legacy/replayed value can establish a generation baseline but
-            // not its age. The next changed generation or quota tuple will
-            // make it fresh.
-            (Some(_), None) => None,
+            (Some(previous_window), None) if previous_window == window => None,
+            _ => Some(snapshot.fetched_at_unix),
         };
 
         let stored_generation = api_generation.map(str::to_string).or_else(|| {
@@ -2333,7 +2327,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_timer_replay_does_not_refresh_quota_observation_time() {
+    fn repeated_claude_rate_limits_keep_the_observation_current() {
         let directory = tempdir().unwrap();
         let cache = CacheStore::new(directory.path());
         let payload = json!({"session_id":"session-a"});
@@ -2365,7 +2359,7 @@ mod tests {
         let observation = saved
             .quota_observation_for_session(Some("session-a"), WindowKind::FiveHour)
             .unwrap();
-        assert_eq!(observation.observed_at_unix, Some(100));
+        assert_eq!(observation.observed_at_unix, Some(300));
         assert_eq!(observation.api_generation.as_deref(), Some("generation-a"));
     }
 

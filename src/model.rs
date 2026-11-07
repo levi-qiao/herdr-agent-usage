@@ -662,10 +662,12 @@ impl CacheUsage {
 
 /// Freshness evidence for one session-local quota window.
 ///
-/// Claude statusLine may redraw without another provider response, so hook
-/// arrival time is not evidence that the percentage was observed again.
-/// `observed_at_unix = None` is deliberate for a legacy/replayed value whose
-/// age cannot be established yet. `api_generation` is an opaque digest of
+/// A statusLine payload that includes the window moves this time, including
+/// when the percentage and the API fingerprint are unchanged. Claude's timer
+/// repeats the current limits; that repeat is still the report the sidebar
+/// shows. A redraw that omits `rate_limits` does not move it.
+/// `observed_at_unix = None` is deliberate for a legacy value whose age
+/// cannot be established yet. `api_generation` is an opaque digest of
 /// documented API-derived statusLine fields; it is not an account identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionQuotaObservation {

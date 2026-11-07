@@ -932,7 +932,7 @@ fn idle_claude_statusline_tick_does_not_change_another_sessions_quota() {
 }
 
 #[test]
-fn replayed_idle_claude_quota_becomes_stale_instead_of_looking_current() {
+fn replayed_idle_claude_quota_keeps_the_remaining_reading() {
     let state = tempdir().unwrap();
     let profile = state.path().join("claude-profile");
     fs::create_dir_all(&profile).unwrap();
@@ -958,8 +958,8 @@ fn replayed_idle_claude_quota_becomes_stale_instead_of_looking_current() {
     );
 
     // Age only session-c's production-written observation. The following
-    // statusLine tick is an identical timer replay, so it must not refresh
-    // that timestamp.
+    // statusLine tick repeats the same limits, which is still the current
+    // report, so the remaining percentage comes back.
     let mailbox = state.path().join("claude-statusline.observation.json");
     let mut observation: serde_json::Value =
         serde_json::from_slice(&fs::read(&mailbox).unwrap()).unwrap();
@@ -990,11 +990,11 @@ fn replayed_idle_claude_quota_becomes_stale_instead_of_looking_current() {
         .find(|line| line.contains("w2:p1"))
         .expect("live pane reported");
     assert!(
-        idle_report.contains("quota_5h_unknown=5h stale"),
+        idle_report.contains("quota_5h_normal=5h 95%"),
         "{idle_report}"
     );
-    assert!(!idle_report.contains("5h 95%"), "{idle_report}");
-    assert!(!idle_report.contains("quota_headroom=095"), "{idle_report}");
+    assert!(!idle_report.contains("5h stale"), "{idle_report}");
+    assert!(idle_report.contains("quota_headroom=095"), "{idle_report}");
     assert!(
         live_report.contains("quota_5h_danger=5h 8%"),
         "{live_report}"
