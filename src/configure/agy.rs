@@ -75,7 +75,12 @@ pub fn run_statusline_hook() -> Result<()> {
             if let Ok(cache) = CacheStore::from_env() {
                 let pane_id = std::env::var("HERDR_PANE_ID").ok();
                 let observation = observation_for_cache(&value, pane_id.as_deref());
-                let _ = cache.save_statusline_observation(Provider::Agy, snapshot, &observation);
+                if cache
+                    .save_statusline_observation(Provider::Agy, snapshot, &observation)
+                    .is_ok()
+                {
+                    crate::refresh::nudge_quota_watch();
+                }
             }
         }
     }

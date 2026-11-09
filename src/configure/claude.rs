@@ -90,12 +90,17 @@ pub fn run_statusline_hook() -> Result<()> {
             }
             stamp_session_account(&mut snapshot, &value);
             let generation = api_generation(&value);
-            let _ = cache.save_statusline_observation_with_api_generation(
-                Provider::Claude,
-                snapshot,
-                &value,
-                generation.as_deref(),
-            );
+            if cache
+                .save_statusline_observation_with_api_generation(
+                    Provider::Claude,
+                    snapshot,
+                    &value,
+                    generation.as_deref(),
+                )
+                .is_ok()
+            {
+                crate::refresh::nudge_quota_watch();
+            }
         }
     }
     let Some(output) = CONFIG.run_previous(cache.root(), &input)? else {

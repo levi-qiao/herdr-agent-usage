@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An idle Claude or Agy pane shows the quota its statusLine hook just stored.
+  The watch compares that mailbox when it is newer than the refresh copy, and
+  the sidebar publish reads the same snapshot, so an icon update cannot put
+  the old copy back. A newer mailbox is not held back by the refresh debounce.
+  A statusLine tick starts a watch when none is running, and a running watch
+  publishes the new rows within a second of the mailbox changing. The sidebar
+  keeps the current 5h/7d reading while the pane itself is idle.
 - Claude's statusLine timer repeats the same 5h/7d limits without a new model
   response. That repeat stays the current reading, so the sidebar keeps the
   remaining percentage and reset time instead of replacing them with `stale`

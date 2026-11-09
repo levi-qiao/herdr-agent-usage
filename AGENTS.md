@@ -56,7 +56,7 @@ Concretely, this means:
 | `refresh` | manual action, `startup` | No |
 | `event` | `pane.agent_detected`, `pane.agent_status_changed` | Only the pane named in `HERDR_PLUGIN_EVENT_JSON`, and never a Pi, omp, Muse, or Cursor pane — their transcripts carry the evidence |
 | `focus` | `pane.focused`, `workspace.focused`, `tab.focused` | No |
-| `watch` | detached from a working status event | No (agent metadata only) |
+| `watch` | detached from a working status event, or from a Claude/Agy statusLine tick when none is running | No (agent metadata only) |
 
 `startup` exists because Herdr drops plugin-owned Agent views when the server
 exits, and startup hooks run again after a restart or a live handoff. It
@@ -75,12 +75,19 @@ and socket so an older watcher can adopt the new connection.
 working→idle on completion). Anything `event` does, the user pays for twice
 every time they press Enter. Budget accordingly.
 
-The working event starts one global `watch` pulse. It calls `herdr agent list`
+The working event starts one global `watch` pulse. A Claude or Agy statusLine
+tick starts that same pulse when none is running, so an idle pane picks up the
+mailbox without waiting for another agent to enter `working`. The hook only
+writes the mailbox and does not publish. The watcher calls `herdr agent list`
 once per configured interval for every supported harness, including Pi, OMP,
 OpenCode, Muse, and Cursor. Event-spawned watchers defer their first poll. They resolve local
 billing targets, refresh active/settling targets, and publish to siblings with
 the same target without reading terminal output. A finishing target stays in
-the pass until the 60-second debounce has elapsed. The interval defaults to
+the pass until the 60-second debounce has elapsed. Claude and Agy render the
+statusLine mailbox when it is newer than the refresh copy. That is what both
+the watch membership and the sidebar publish read, so an icon or layout pass
+cannot paint the older copy. A newer mailbox skips the refresh debounce. A
+pane that has never been published is still not drift. The interval defaults to
 60 seconds and is bounded to 30 seconds–1 hour. While a pane is working or
 has an unseen completion, the watcher checks the metadata-only Herdr
 snapshot once per second. Herdr 0.9 can miss TUI focus hooks; the snapshot
@@ -88,7 +95,10 @@ reconciles those changes without reading pane output or writing unchanged
 metadata. Inventory `focused` is not that acknowledgement. The same tick
 reads `herdr agent list` when a pane is in `working` or `seen`, and repaints
 the brand icon yellow when `state_change_seq` is newer than the last
-acknowledgement. The watcher stays alive for unseen completions until they are seen.
+acknowledgement. The watcher records the Claude and Agy mailbox mtimes it has
+already considered. During the sleep, a later mtime publishes the drifted
+quota rows. An unchanged mailbox does not list agents.
+The watcher stays alive for unseen completions until they are seen.
 Local stop/connection checks interrupt sleeps. Uninstall writes a stop marker.
 
 ## omp's quota does not come from a provider endpoint
