@@ -16,7 +16,12 @@ use tempfile::tempdir;
 
 fn isolated_plugin_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_herdr-agent-usage"));
-    command.env_remove("HERDR_SOCKET_PATH");
+    // The statusLine hook starts a watcher when none is running. Cargo does
+    // not export RUST_TEST_THREADS to that child, so without this the hook
+    // publishes into the stub log beside the refresh the test is asserting.
+    command
+        .env_remove("HERDR_SOCKET_PATH")
+        .env("HERDR_AGENT_QUOTA_NO_WATCH_NUDGE", "1");
     command
 }
 

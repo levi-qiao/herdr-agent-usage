@@ -129,8 +129,19 @@ pub fn watch(providers: &[Provider], interval_seconds: Option<u64>, defer: bool)
     let started_at = SystemTime::now();
     let started_millis = CacheStore::now_millis();
     let interval = Duration::from_secs(interval_seconds);
+    // The mailbox generation this process has already decided about. The
+    // sleep publishes only a later write. Seeding from the current mtime,
+    // rather than zero, keeps the first tick from publishing the same rows
+    // the pass below is about to publish.
+    let mut mailbox_stamp = statusline_mailbox_stamp(&cache);
     if defer {
-        wait_for_watch_tick(&cache, interval, started_at, started_millis);
+        wait_for_watch_tick(
+            &cache,
+            interval,
+            started_at,
+            started_millis,
+            &mut mailbox_stamp,
+        );
     }
     let mut previous_active = event_json()
         .as_ref()
@@ -158,7 +169,13 @@ pub fn watch(providers: &[Provider], interval_seconds: Option<u64>, defer: bool)
             if started.elapsed() >= MAX_ACTIVE_TURN_WATCH {
                 break;
             }
-            wait_for_watch_tick(&cache, interval, started_at, started_millis);
+            wait_for_watch_tick(
+                &cache,
+                interval,
+                started_at,
+                started_millis,
+                &mut mailbox_stamp,
+            );
             continue;
         };
         let enabled = AgentSelection::from_args_or_env(&[]);
@@ -207,7 +224,13 @@ pub fn watch(providers: &[Provider], interval_seconds: Option<u64>, defer: bool)
         if started.elapsed() >= MAX_ACTIVE_TURN_WATCH && cache.icon_attention().unseen.is_empty() {
             break;
         }
-        wait_for_watch_tick(&cache, interval, started_at, started_millis);
+        wait_for_watch_tick(
+            &cache,
+            interval,
+            started_at,
+            started_millis,
+            &mut mailbox_stamp,
+        );
     }
     Ok(())
 }
@@ -287,13 +310,15 @@ fn watch_pass_ids(
 /// reading misses: the rendered rows agree with an empty cache, and only the
 /// first pulls it in for the fetch that replaces them.
 ///
-/// This decides membership only. It loads the one snapshot the pass would read
-/// anyway and publishes nothing.
+/// This decides membership only. It loads the snapshot the next publish would
+/// render and publishes nothing. Claude and Agy render the statusLine mailbox:
+/// the refresh copy lags that file until a pass copies it, so comparing the
+/// copy hides a session that the hook has already recorded.
 fn cached_quota_is_stale(cache: &CacheStore, pane: &AgentPane, now: u64, row: RowStyle) -> bool {
     let Resolution::Subscription(target) = route::resolve(pane) else {
         return false;
     };
-    let Some(snapshot) = cache.load_target(&target).ok().flatten() else {
+    let Some(snapshot) = snapshot_for_quota_staleness(cache, &target) else {
         return false;
     };
     let session_id = pane.session.as_ref().and_then(|session| session.id());
@@ -304,11 +329,107 @@ fn cached_quota_is_stale(cache: &CacheStore, pane: &AgentPane, now: u64, row: Ro
     crate::herdr::quota_rows_have_drifted(&pane.tokens, &values, row.shape)
 }
 
+/// The quota a pane would show on the next publish.
+///
+/// Claude and Agy render the newer of the statusLine mailbox and the refresh
+/// copy, the same snapshot a publish uses. Every other target has one file.
+fn snapshot_for_quota_staleness(
+    cache: &CacheStore,
+    target: &BillingTarget,
+) -> Option<ProviderSnapshot> {
+    if let Some(provider) = target.original_provider() {
+        if matches!(provider, Provider::Claude | Provider::Agy) {
+            return provider_snapshot_for_display(cache, provider)
+                .ok()
+                .flatten();
+        }
+    }
+    cache.load_target(target).ok().flatten()
+}
+
+/// Snapshot a publish should render for this provider.
+///
+/// The statusLine hook writes the mailbox and not the refresh copy. An icon
+/// or layout pass that rendered the older copy would blank a pane the hook
+/// had already filled. A copy that is as new as the mailbox wins, because
+/// that save is what carries the migrated and enriched fields.
+fn provider_snapshot_for_display(
+    cache: &CacheStore,
+    provider: Provider,
+) -> Result<Option<ProviderSnapshot>> {
+    let saved = cache.load(provider)?;
+    if !matches!(provider, Provider::Claude | Provider::Agy) {
+        return Ok(saved);
+    }
+    let Some(mailbox) = statusline_mailbox_snapshot(cache, provider) else {
+        return Ok(saved);
+    };
+    match saved {
+        Some(saved) if mailbox.fetched_at_unix <= saved.fetched_at_unix => Ok(Some(saved)),
+        _ => Ok(Some(mailbox)),
+    }
+}
+
+fn statusline_mailbox_snapshot(cache: &CacheStore, provider: Provider) -> Option<ProviderSnapshot> {
+    if !matches!(provider, Provider::Claude | Provider::Agy) {
+        return None;
+    }
+    cache
+        .load_statusline_observation(provider)
+        .ok()
+        .flatten()
+        .map(|observation| observation.snapshot)
+}
+
+/// Claude and Agy mtimes, so a rewrite of either mailbox is visible even when
+/// the other file is newer.
+fn statusline_mailbox_stamp(cache: &CacheStore) -> (u64, u64) {
+    let mtime = |provider: Provider| {
+        CacheStore::file_mtime_unix(
+            &cache
+                .root()
+                .join(format!("{}.observation.json", provider.source())),
+        )
+        .unwrap_or(0)
+    };
+    (mtime(Provider::Claude), mtime(Provider::Agy))
+}
+
+/// Publish Claude/Agy rows whose sidebar no longer matches the mailbox.
+///
+/// Called from the one-second sleep, and only after a mailbox file changes,
+/// so an idle pane does not wait out the quota interval and a quiet minute
+/// does not list agents.
+fn publish_drifted_statusline_panes(cache: &CacheStore) {
+    let Ok(mut panes) = list_agent_panes() else {
+        return;
+    };
+    let enabled = AgentSelection::from_args_or_env(&[]);
+    panes.retain(|pane| enabled.contains(&pane.harness));
+    let row = publish_row(cache);
+    let now = CacheStore::now_unix();
+    let drifted = panes
+        .iter()
+        .filter(|pane| {
+            matches!(
+                pane.harness.billing(),
+                Some(Provider::Claude | Provider::Agy)
+            ) && cached_quota_is_stale(cache, pane, now, row)
+        })
+        .map(|pane| pane.pane_id.clone())
+        .collect::<Vec<_>>();
+    if drifted.is_empty() {
+        return;
+    }
+    let _ = refresh_working_panes(cache, &panes, &drifted, &[]);
+}
+
 fn wait_for_watch_tick(
     cache: &CacheStore,
     interval: Duration,
     started_at: SystemTime,
     started_millis: u64,
+    mailbox_stamp: &mut (u64, u64),
 ) {
     let deadline = Instant::now() + interval;
     while Instant::now() < deadline {
@@ -321,6 +442,11 @@ fn wait_for_watch_tick(
                 .is_some_and(|server| server != WatchHerdrEnvironment::current())
         {
             break;
+        }
+        let stamp = statusline_mailbox_stamp(cache);
+        if stamp != *mailbox_stamp {
+            *mailbox_stamp = stamp;
+            publish_drifted_statusline_panes(cache);
         }
         poll_focus_once(cache);
         poll_working_icons_once(cache);
@@ -1002,7 +1128,7 @@ fn resolved_pane_tokens(
         }
         Resolution::Subscription(target) => {
             if let Some(provider) = target.original_provider() {
-                let snapshot = cache.load(provider)?;
+                let snapshot = provider_snapshot_for_display(cache, provider)?;
                 let (account_id, mtime) = current_account_gate(provider);
                 let usable = snapshot
                     .as_ref()
@@ -1520,8 +1646,24 @@ fn should_skip_fetch(
     force: bool,
     now_unix: u64,
 ) -> Result<bool> {
+    // The statusLine hook writes the mailbox and not this snapshot. Debounce
+    // would keep publishing the older copy for up to a minute after the
+    // sidebar had already noticed the mailbox move.
+    if statusline_mailbox_is_ahead(cache, provider) {
+        return Ok(false);
+    }
     let (account, mtime) = current_account_gate(provider);
     should_skip_fetch_for_account(cache, provider, force, now_unix, account.as_deref(), mtime)
+}
+
+fn statusline_mailbox_is_ahead(cache: &CacheStore, provider: Provider) -> bool {
+    let Some(mailbox) = statusline_mailbox_snapshot(cache, provider) else {
+        return false;
+    };
+    match cache.load(provider).ok().flatten() {
+        Some(saved) => mailbox.fetched_at_unix > saved.fetched_at_unix,
+        None => true,
+    }
 }
 
 fn should_skip_fetch_for_account(
@@ -2095,6 +2237,33 @@ fn reexec_watch(server: Option<&WatchHerdrEnvironment>, interval_seconds: u64) -
             .context("restart active-turn quota watcher")?;
         Ok(())
     }
+}
+
+/// Start the quota watcher if one is not already running.
+///
+/// The statusLine hook calls this after it stores a mailbox. The hook itself
+/// stays a short write: a running watcher notices the new mtime within a
+/// second, and when every pane is idle this starts the one pass that
+/// publishes it. Integration tests spawn this binary as a child. Cargo's
+/// `--test-threads` does not export `RUST_TEST_THREADS` into that child, so
+/// the harness sets `HERDR_AGENT_QUOTA_NO_WATCH_NUDGE`. Either variable means
+/// the hook must not start a watcher: the suite's refresh is the publisher,
+/// and a second one would also talk to the developer's Herdr when no stub
+/// path was set.
+pub(crate) fn nudge_quota_watch() {
+    if std::env::var_os("HERDR_AGENT_QUOTA_NO_WATCH_NUDGE").is_some()
+        || std::env::var_os("RUST_TEST_THREADS").is_some()
+    {
+        return;
+    }
+    let Ok(cache) = CacheStore::from_env() else {
+        return;
+    };
+    let Ok(Some(lock)) = cache.try_lock_named(TURN_WATCH_LOCK) else {
+        return;
+    };
+    drop(lock);
+    let _ = spawn_watch(false);
 }
 
 fn spawn_watch(defer: bool) -> Result<()> {
@@ -3069,6 +3238,188 @@ mod tests {
         assert!(affected.contains(&"claude-first".to_string()));
         assert!(!affected.contains(&"claude-second".to_string()));
     }
+
+    #[test]
+    fn an_idle_claude_pane_follows_the_statusline_mailbox_ahead_of_the_refresh_copy() {
+        let directory = tempdir().unwrap();
+        let cache = CacheStore::new(directory.path());
+        cache
+            .save(&ProviderSnapshot::new(Provider::Claude, vec![], 100).session_local())
+            .unwrap();
+        cache
+            .save_statusline_observation(
+                Provider::Claude,
+                ProviderSnapshot::new(
+                    Provider::Claude,
+                    vec![
+                        window(WindowKind::FiveHour, 4.0, 9_000),
+                        window(WindowKind::Weekly, 26.0, 90_000),
+                    ],
+                    500,
+                )
+                .session_local(),
+                &serde_json::json!({"session_id": "s1"}),
+            )
+            .unwrap();
+
+        let mut idle = test_pane_with_session("claude-idle", Harness::Claude, "s1");
+        idle.tokens
+            .insert("quota_provider".to_string(), "Claude".to_string());
+        let panes = [idle, test_pane("grok-working", Harness::Grok)];
+        let grok = "grok-working".to_string();
+        let mut settling = BTreeMap::new();
+        let affected = watch_pass_ids(
+            &cache,
+            &panes,
+            &Provider::ALL,
+            std::slice::from_ref(&grok),
+            std::slice::from_ref(&grok),
+            &mut settling,
+            501,
+        );
+        assert!(affected.contains(&"claude-idle".to_string()));
+    }
+
+    #[test]
+    fn a_newer_statusline_mailbox_is_what_a_publish_renders() {
+        let directory = tempdir().unwrap();
+        let cache = CacheStore::new(directory.path());
+        cache
+            .save(&ProviderSnapshot::new(Provider::Claude, vec![], 100).session_local())
+            .unwrap();
+        cache
+            .save_statusline_observation(
+                Provider::Claude,
+                ProviderSnapshot::new(
+                    Provider::Claude,
+                    vec![
+                        window(WindowKind::FiveHour, 4.0, 9_000),
+                        window(WindowKind::Weekly, 26.0, 90_000),
+                    ],
+                    500,
+                )
+                .session_local(),
+                &serde_json::json!({"session_id": "s1"}),
+            )
+            .unwrap();
+        let displayed = provider_snapshot_for_display(&cache, Provider::Claude)
+            .unwrap()
+            .unwrap();
+        assert!(
+            !displayed.windows_for_session(Some("s1")).is_empty(),
+            "publish must render the newer mailbox, not the empty refresh copy"
+        );
+        assert!(displayed.windows_for_session(Some("s2")).is_empty());
+
+        // No plugin tokens yet, so this pane is not drift. Membership must
+        // not wake every unpublished Claude pane; the icon publish renders
+        // the mailbox above.
+        let idle = test_pane_with_session("claude-idle", Harness::Claude, "s1");
+        let panes = [idle, test_pane("grok-working", Harness::Grok)];
+        let grok = "grok-working".to_string();
+        let mut settling = BTreeMap::new();
+        let affected = watch_pass_ids(
+            &cache,
+            &panes,
+            &Provider::ALL,
+            std::slice::from_ref(&grok),
+            std::slice::from_ref(&grok),
+            &mut settling,
+            501,
+        );
+        assert!(!affected.contains(&"claude-idle".to_string()));
+        assert_eq!(affected, vec![grok]);
+    }
+
+    #[test]
+    fn an_idle_claude_pane_showing_the_mailbox_ignores_a_stale_refresh_copy() {
+        let directory = tempdir().unwrap();
+        let cache = CacheStore::new(directory.path());
+        cache
+            .save(&ProviderSnapshot::new(Provider::Claude, vec![], 100).session_local())
+            .unwrap();
+        cache
+            .save_statusline_observation(
+                Provider::Claude,
+                ProviderSnapshot::new(
+                    Provider::Claude,
+                    vec![
+                        window(WindowKind::FiveHour, 4.0, 9_000),
+                        window(WindowKind::Weekly, 26.0, 90_000),
+                    ],
+                    1_000,
+                )
+                .session_local(),
+                &serde_json::json!({"session_id": "s1"}),
+            )
+            .unwrap();
+        let mailbox = cache
+            .load_statusline_observation(Provider::Claude)
+            .unwrap()
+            .unwrap()
+            .snapshot;
+        let row = publish_row(&cache);
+        let values = MetadataTokens::from_snapshot_for_pane(
+            &mailbox,
+            1_001,
+            Some("s1"),
+            row.percent,
+            row.shape,
+        );
+        let mut idle = test_pane_with_session("claude-idle", Harness::Claude, "s1");
+        idle.tokens
+            .insert("quota_5h_normal".to_string(), values.quota_5h.clone());
+        idle.tokens
+            .insert("quota_week_normal".to_string(), values.quota_week.clone());
+        idle.tokens.insert(
+            "quota_headroom".to_string(),
+            format!("{:03}", values.quota_headroom.unwrap()),
+        );
+        let panes = [idle, test_pane("grok-working", Harness::Grok)];
+        let grok = "grok-working".to_string();
+        let mut settling = BTreeMap::new();
+        let affected = watch_pass_ids(
+            &cache,
+            &panes,
+            &Provider::ALL,
+            std::slice::from_ref(&grok),
+            std::slice::from_ref(&grok),
+            &mut settling,
+            1_001,
+        );
+        assert_eq!(affected, vec![grok]);
+    }
+
+    #[test]
+    fn a_newer_statusline_mailbox_is_not_held_by_refresh_debounce() {
+        let directory = tempdir().unwrap();
+        let cache = CacheStore::new(directory.path());
+        cache
+            .save(&ProviderSnapshot::new(Provider::Claude, vec![], 100).session_local())
+            .unwrap();
+        cache
+            .mark_refresh_account(Provider::Claude, 1_000, None)
+            .unwrap();
+        cache
+            .save_statusline_observation(
+                Provider::Claude,
+                ProviderSnapshot::new(
+                    Provider::Claude,
+                    vec![window(WindowKind::FiveHour, 4.0, 9_000)],
+                    1_050,
+                )
+                .session_local(),
+                &serde_json::json!({"session_id": "s1"}),
+            )
+            .unwrap();
+        assert!(!should_skip_fetch(&cache, Provider::Claude, false, 1_040).unwrap());
+
+        cache
+            .save(&ProviderSnapshot::new(Provider::Claude, vec![], 1_050).session_local())
+            .unwrap();
+        assert!(should_skip_fetch(&cache, Provider::Claude, false, 1_040).unwrap());
+    }
+
     #[test]
     fn omp_panes_keep_both_accounts_from_one_debounced_report() {
         let dir = tempdir().unwrap();
