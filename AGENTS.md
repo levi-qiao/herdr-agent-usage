@@ -181,10 +181,13 @@ at all, so a failed key beside a working one is invisible and not counted.
   view heads it with the first pane in inventory order.
 - Agy publishes the account's pools, not the active model's pool. The
   sidebar has three rows, filled in order Gemini, Argon, Claude (the `3p-*`
-  pool, shared with GPT). Each pool contributes its tighter bucket first;
-  a second period of the same pool is shown only while a pool is absent.
-  Pro therefore reads `gem`, `arn`, `cla`. A plan without Argon reads
-  `g5h`, `cla`, `g7d`. Do not hide a pool because the model name did not
+  pool, shared with GPT). Each pool contributes its tighter bucket first.
+  A spare row shows a weekly bucket that pass left out, so Claude's week is
+  not dropped while Gemini still has a second period. A Carbon session whose
+  Claude 5h is the tighter Claude bucket reads `g7d`, `c5h`, and `c7d`. When
+  both weeks are the looser bucket, the spare stays with the tighter week
+  (`g5h`, `cla`, `g7d`). Pro therefore reads `gem`, `arn`, `cla`. Do not hide
+  a pool because the model name did not
   match it, and do not invent a Carbon-specific bucket the statusLine did
   not send.
 - Agy's topic is the conversation title in

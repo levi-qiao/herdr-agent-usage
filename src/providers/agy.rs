@@ -48,11 +48,12 @@ struct Reading {
 /// the same login draw down different pools, and hiding the other one is
 /// how a Pro account lost Argon or Claude. Up to three rows are published,
 /// in pool order Gemini, Argon, Claude. Each pool first contributes the
-/// bucket with the least remaining allowance. A pool's other period fills
-/// a row only when a pool is absent, so a plan without Argon still shows
-/// both Gemini periods. Labels stay three characters so the gauge column
-/// lines up: `gem` / `arn` / `cla` for a pool's single row, and `g5h` /
-/// `g7d` / `c5h` / `c7d` when that pool occupies two rows.
+/// bucket with the least remaining allowance. A spare row then shows a
+/// weekly bucket that pass left out, so Claude's week is not dropped while
+/// Gemini still has a second period. A row that is still empty after that
+/// keeps the next period in pool order. Labels stay three characters:
+/// `gem` / `arn` / `cla` for a pool's only row, and `g5h` / `g7d` / `c5h` /
+/// `c7d` when that row has to be told apart from another period on screen.
 pub fn parse_statusline(
     value: &Value,
     fetched_at_unix: u64,
@@ -152,11 +153,27 @@ fn sidebar_windows(
         }
     }
     if chosen.len() < SIDEBAR_SLOTS.len() {
+        // The first pass can spend Claude's only row on the 5h bucket. The
+        // spare row belongs to the weekly that pass skipped, ahead of a
+        // second period from a pool whose week is already on screen.
+        while chosen.len() < SIDEBAR_SLOTS.len() {
+            let Some(reading) = pools
+                .iter()
+                .flatten()
+                .filter(|reading| {
+                    reading.period == WindowKind::Weekly && !already_chosen(&chosen, reading)
+                })
+                .min_by(|left, right| tighter(left, right))
+            else {
+                break;
+            };
+            chosen.push(reading.clone());
+        }
+    }
+    if chosen.len() < SIDEBAR_SLOTS.len() {
         for readings in &pools {
             for reading in readings {
-                if chosen.iter().any(|existing| {
-                    existing.pool == reading.pool && existing.period == reading.period
-                }) {
+                if already_chosen(&chosen, reading) {
                     continue;
                 }
                 chosen.push(reading.clone());
@@ -170,6 +187,9 @@ fn sidebar_windows(
         }
     }
 
+    let beside_shorter = chosen
+        .iter()
+        .any(|reading| reading.period == WindowKind::FiveHour);
     Ok(chosen
         .iter()
         .enumerate()
@@ -181,22 +201,30 @@ fn sidebar_windows(
             let mut window = reading.window.clone();
             window.kind = SIDEBAR_SLOTS[index];
             window.with_source_window(
-                row_label(reading.pool, rows_for_pool, reading.period),
+                row_label(reading.pool, rows_for_pool, reading.period, beside_shorter),
                 Some(reading.period.duration_seconds()),
             )
         })
         .collect())
 }
 
+fn already_chosen(chosen: &[Reading], reading: &Reading) -> bool {
+    chosen
+        .iter()
+        .any(|existing| existing.pool == reading.pool && existing.period == reading.period)
+}
+
 /// The bucket that runs out first. Equal remaining prefers the shorter
 /// period, which resets sooner.
 fn tightest(readings: &[Reading]) -> Option<&Reading> {
-    readings.iter().min_by(|left, right| {
-        left.window
-            .remaining_percent
-            .total_cmp(&right.window.remaining_percent)
-            .then(period_rank(left.period).cmp(&period_rank(right.period)))
-    })
+    readings.iter().min_by(|left, right| tighter(left, right))
+}
+
+fn tighter(left: &Reading, right: &Reading) -> std::cmp::Ordering {
+    left.window
+        .remaining_percent
+        .total_cmp(&right.window.remaining_percent)
+        .then(period_rank(left.period).cmp(&period_rank(right.period)))
 }
 
 fn period_rank(period: WindowKind) -> u8 {
@@ -207,13 +235,22 @@ fn period_rank(period: WindowKind) -> u8 {
     }
 }
 
-fn row_label(pool: Pool, rows_for_pool: usize, period: WindowKind) -> &'static str {
-    match (pool, rows_for_pool, period) {
-        (Pool::Gemini, 1, _) => "gem",
+fn row_label(
+    pool: Pool,
+    rows_for_pool: usize,
+    period: WindowKind,
+    beside_shorter: bool,
+) -> &'static str {
+    // A lone weekly sitting next to a 5h row has to say `g7d` / `c7d`. The
+    // pool name is only enough when every row on screen is that pool's one
+    // bucket, which is the Pro case (`gem` / `arn` / `cla`).
+    let period_label = rows_for_pool > 1 || (beside_shorter && period != WindowKind::FiveHour);
+    match (pool, period_label, period) {
+        (Pool::Gemini, false, _) => "gem",
         (Pool::Gemini, _, WindowKind::Weekly) => "g7d",
         (Pool::Gemini, _, _) => "g5h",
         (Pool::Argon, _, _) => "arn",
-        (Pool::Claude, 1, _) => "cla",
+        (Pool::Claude, false, _) => "cla",
         (Pool::Claude, _, WindowKind::Weekly) => "c7d",
         (Pool::Claude, _, _) => "c5h",
     }
@@ -452,9 +489,9 @@ mod tests {
         });
         let snapshot = parse_statusline(&value, 1).unwrap();
         assert_eq!(snapshot.provider, Provider::Agy);
-        // Weekly Gemini is tighter than Gemini 5h, so it leads. The spare
-        // row is the other Gemini period. Claude keeps its own row.
-        assert_rows(&snapshot, &[("g7d", 80.0), ("cla", 72.0), ("g5h", 99.69)]);
+        // Weekly Gemini leads. Claude's 5h is tighter than its week, so the
+        // spare row is that week rather than Gemini's looser 5h.
+        assert_rows(&snapshot, &[("g7d", 80.0), ("c5h", 72.0), ("c7d", 91.0)]);
         assert_eq!(
             snapshot.window(WindowKind::FiveHour).unwrap().resets_at,
             Some(ResetAt::from_unix_seconds(1_787_400_000))
@@ -671,8 +708,23 @@ mod tests {
         let snapshot = parse_statusline(&value, 0).unwrap();
         assert_rows(
             &snapshot,
-            &[("g7d", 63.42774), ("cla", 100.0), ("g5h", 85.21118)],
+            &[("g7d", 63.42774), ("c5h", 100.0), ("c7d", 100.0)],
         );
+    }
+
+    #[test]
+    fn a_tighter_claude_five_hour_keeps_the_claude_week() {
+        let value = json!({
+            "model": {"display_name": "Orchestrator (Carbon)"},
+            "quota": {
+                "gemini-5h": {"remaining_fraction": 0.96, "reset_in_seconds": 17040},
+                "gemini-weekly": {"remaining_fraction": 0.86, "reset_in_seconds": 577800},
+                "3p-5h": {"remaining_fraction": 0.70, "reset_in_seconds": 5160},
+                "3p-weekly": {"remaining_fraction": 0.88, "reset_in_seconds": 577800}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_rows(&snapshot, &[("g7d", 86.0), ("c5h", 70.0), ("c7d", 88.0)]);
     }
 
     #[test]

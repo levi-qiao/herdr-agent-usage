@@ -16,8 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Agy pools.** The sidebar shows the account's pools instead of the one
   pool guessed from the model name. Three rows, in order: Gemini, Argon,
   and Claude (`3p`, shared with GPT). Each row is that pool's tighter
-  bucket. When Argon is absent the spare row keeps Gemini's other period,
-  so a Carbon session reads `g5h`, `cla`, and `g7d`. A Pro payload that
+  bucket. A spare row shows a weekly bucket the first pass left out, so a
+  Carbon session whose Claude 5h is tighter than its week reads `g7d`,
+  `c5h`, and `c7d`. When both weeks are the looser bucket the spare stays
+  with the tighter week (`g5h`, `cla`, `g7d`). A Pro payload that
   includes `gemini-argon-wtu-weekly` reads `gem`, `arn`, and `cla`.
 - An idle Claude or Agy pane shows the quota its statusLine hook just stored.
   The watch compares that mailbox when it is newer than the refresh copy, and
