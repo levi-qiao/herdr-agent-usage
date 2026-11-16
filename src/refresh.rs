@@ -1096,7 +1096,7 @@ fn apply_session_summary(pane: &mut AgentPane, summary: &str) {
     pane.session_summary = summary.to_string();
     if matches!(
         pane.harness,
-        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Mimo
+        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Mimo | Harness::Agy
     ) {
         pane.topic = summary.to_string();
     }
@@ -2400,6 +2400,12 @@ mod tests {
         mimo.topic = "old prompt".to_string();
         apply_session_summary(&mut mimo, "MiMo Agent Name Like Grok");
         assert_eq!(mimo.topic, "MiMo Agent Name Like Grok");
+
+        let mut agy = test_pane("w1:p6", Harness::Agy);
+        agy.topic = "raw prompt".to_string();
+        apply_session_summary(&mut agy, "Conversation title");
+        assert_eq!(agy.topic, "Conversation title");
+        assert_eq!(agy.session_summary, "Conversation title");
 
         let mut codex = test_pane("w1:p2", Harness::Codex);
         codex.topic = "screen topic".to_string();

@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Agy topic.** The sidebar shows the conversation title from Antigravity's
+  `annotations/<conversation>.pbtxt`. A subagent pane uses its parent
+  conversation's title. With pane titles on, Agy's row uses that summary
+  instead of the terminal title `agy`. A conversation that has no title yet
+  still uses the latest visible prompt.
+- **Agy pools.** The sidebar shows the account's pools instead of the one
+  pool guessed from the model name. Three rows, in order: Gemini, Argon,
+  and Claude (`3p`, shared with GPT). Each row is that pool's tighter
+  bucket. When Argon is absent the spare row keeps Gemini's other period,
+  so a Carbon session reads `g5h`, `cla`, and `g7d`. A Pro payload that
+  includes `gemini-argon-wtu-weekly` reads `gem`, `arn`, and `cla`.
 - An idle Claude or Agy pane shows the quota its statusLine hook just stored.
   The watch compares that mailbox when it is newer than the refresh copy, and
   the sidebar publish reads the same snapshot, so an icon update cannot put

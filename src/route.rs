@@ -81,11 +81,15 @@ pub fn resolve_with_identity(pane: &AgentPane) -> ResolvedPane {
             )
         }
     };
+    let session_summary = (pane.harness == Harness::Agy)
+        .then(|| pane.session.as_ref().and_then(|session| session.id()))
+        .flatten()
+        .and_then(crate::providers::agy::conversation_title);
     ResolvedPane {
         resolution,
         identity: None,
         context: None,
-        session_summary: None,
+        session_summary,
         omp: None,
     }
 }

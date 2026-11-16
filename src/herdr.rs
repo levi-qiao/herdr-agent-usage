@@ -880,6 +880,27 @@ pub fn focused_pane_in_snapshot(
 // terminal. Only the pane that fired the event is worth that cost; every other
 // pane keeps the topic it last published.
 pub fn refresh_pane_topic(pane: &mut AgentPane) {
+    // Agy's conversation title is a local annotation. Reading the pane would
+    // only recover the last `>` prompt, and it repaints the TUI. Keep that
+    // read for a session that has no title yet.
+    if pane.harness == Harness::Agy {
+        if let Some(title) = pane
+            .session
+            .as_ref()
+            .and_then(|session| session.id())
+            .and_then(crate::providers::agy::conversation_title)
+        {
+            pane.session_summary = title.clone();
+            pane.topic = title;
+            return;
+        }
+        // Inventory rewrites an Agy session to the pane id after copying the
+        // annotation title onto the summary. A later prompt read would put
+        // the raw `>` line back.
+        if !pane.session_summary.trim().is_empty() && pane.topic == pane.session_summary {
+            return;
+        }
+    }
     let executable = std::env::var_os("HERDR_BIN_PATH").unwrap_or_else(|| "herdr".into());
     if let Some(topic) = read_pane_topic(&executable, pane) {
         pane.topic = topic;
