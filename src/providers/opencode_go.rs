@@ -24,7 +24,6 @@ use crate::opencode::ConsoleCredential;
 use crate::providers::ProviderError;
 use anyhow::{Context, Result};
 use serde_json::Value;
-use std::time::Duration;
 
 /// Official host and path. Credentials are only ever sent here; a redirect
 /// away from this host drops the request rather than following it.
@@ -50,13 +49,7 @@ pub fn fetch(key: &str) -> Result<ProviderSnapshot> {
     if key.trim().is_empty() {
         return Err(ProviderError::MissingCredentials.into());
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        // A credential-bearing request must not be replayed to another host.
-        .redirects(0)
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .get(USAGE_URL)
         .set("Authorization", &format!("Bearer {}", key.trim()))
@@ -81,13 +74,7 @@ pub fn fetch_console(credential: &ConsoleCredential) -> Result<ProviderSnapshot>
             ProviderError::Unavailable("console host is not opencode.ai".to_string()).into(),
         );
     };
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        // A credential-bearing request must not be replayed to another host.
-        .redirects(0)
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .get(&format!("{server}{CONSOLE_STATUS_PATH}"))
         .set(

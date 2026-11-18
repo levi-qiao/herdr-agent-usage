@@ -11,7 +11,34 @@ pub mod opencode_go;
 pub mod statusline;
 
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
+use std::time::Duration;
 use thiserror::Error;
+
+/// A single shared `ureq::Agent` for all provider HTTP requests.
+///
+/// `ureq::Agent` is designed to be reused: it pools connections, caches DNS,
+/// and keeps TLS sessions alive. Creating a fresh agent per request defeats
+/// that — every request pays a new TCP/TLS handshake instead of reusing an
+/// existing connection. The watcher is a long-lived process that polls every
+/// provider on a cadence, so connection reuse across polls is the win.
+static HTTP_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+/// Returns the shared HTTP agent, initializing it on first use.
+///
+/// All providers use the same base timeouts (5s connect, 10s read/write) and
+/// `redirects(0)` so credentials are never replayed to another host on a
+/// redirect. The first caller wins; everyone else gets the same pooled agent.
+fn http_agent() -> &'static ureq::Agent {
+    HTTP_AGENT.get_or_init(|| {
+        ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout_read(Duration::from_secs(10))
+            .timeout_write(Duration::from_secs(10))
+            .redirects(0)
+            .build()
+    })
+}
 
 #[cfg(test)]
 pub(crate) mod test_support {

@@ -151,12 +151,7 @@ fn fetch_usage(
     credentials: &CursorCredentials,
     now: u64,
 ) -> std::result::Result<ProviderSnapshot, ProviderError> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        .redirects(0)
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .post(USAGE_URL)
         .set(
