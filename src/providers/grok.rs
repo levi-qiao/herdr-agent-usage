@@ -11,7 +11,6 @@ use std::collections::{BTreeSet, BinaryHeap};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 const BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const GROK_SESSION_TAIL_BYTES: u64 = 128 * 1024;
@@ -47,11 +46,7 @@ pub fn fetch_for_sessions_with_cwds(
 ) -> Result<ProviderSnapshot> {
     let path = auth_path().context("resolve Grok auth path")?;
     let credentials = read_credentials(&path).map_err(anyhow::Error::from)?;
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        .build();
+    let agent = crate::providers::http_agent();
     let mut request = agent
         .get(BILLING_URL)
         .set("Authorization", &format!("Bearer {}", credentials.key))
