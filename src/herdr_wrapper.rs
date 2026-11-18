@@ -9,8 +9,24 @@ pub(crate) use crate::herdr_base::{plugin_quota_present, quota_rows_have_drifted
 /// on the server for resume; only this plugin's local pane copy uses the pane
 /// id so quota/model/context lookup cannot cross Agy panes.
 fn bind_agy_quota_session(pane: &mut AgentPane) {
+    bind_agy_quota_session_with(pane, crate::providers::agy::conversation_title);
+}
+
+fn bind_agy_quota_session_with(pane: &mut AgentPane, title_of: impl Fn(&str) -> Option<String>) {
     if pane.harness != Harness::Agy {
         return;
+    }
+    // Quota lookup rewrites this session to the pane id. The conversation
+    // title has to be taken from Antigravity's id first, or the sidebar keeps
+    // the last prompt.
+    if let Some(title) = pane
+        .session
+        .as_ref()
+        .and_then(|session| session.id())
+        .and_then(title_of)
+    {
+        pane.session_summary = title.clone();
+        pane.topic = title;
     }
     pane.session = Some(AgentSession {
         kind: Some("id".to_string()),
@@ -77,6 +93,25 @@ mod tests {
             pane.session.as_ref().and_then(AgentSession::id),
             Some("w1:p7")
         );
+    }
+
+    #[test]
+    fn agy_keeps_the_conversation_title_when_the_session_becomes_the_pane_id() {
+        let mut pane = pane(
+            Harness::Agy,
+            "w1:p7",
+            Some("249f6bd0-8a10-40f4-a58b-afd6225629f5"),
+        );
+        pane.topic = "raw prompt".to_string();
+        bind_agy_quota_session_with(&mut pane, |id| {
+            (id == "249f6bd0-8a10-40f4-a58b-afd6225629f5").then(|| "Parent summary".to_string())
+        });
+        assert_eq!(
+            pane.session.as_ref().and_then(AgentSession::id),
+            Some("w1:p7")
+        );
+        assert_eq!(pane.topic, "Parent summary");
+        assert_eq!(pane.session_summary, "Parent summary");
     }
 
     #[test]

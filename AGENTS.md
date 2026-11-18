@@ -179,8 +179,28 @@ at all, so a failed key beside a working one is invisible and not counted.
   membership from `nest_group_key` alone. Under either plugin view
   (`quota`, `tabs`) every same-payer pane in a Space is one group; the tabs
   view heads it with the first pane in inventory order.
-- Agy must identify the active pool or receive only one possible pool. Do not
-  combine Gemini and third-party quotas for an unknown model.
+- Agy publishes the account's pools, not the active model's pool. The
+  sidebar has three rows, filled in order Gemini, Argon, Claude (the `3p-*`
+  pool, shared with GPT). Each pool contributes its tighter bucket first.
+  A spare row shows a weekly bucket that pass left out, so Claude's week is
+  not dropped while Gemini still has a second period. A Carbon session whose
+  Claude 5h is the tighter Claude bucket reads `g7d`, `c5h`, and `c7d`. When
+  both weeks are the looser bucket, the spare stays with the tighter week
+  (`g5h`, `cla`, `g7d`). Pro therefore reads `gem`, `arn`, `cla`. Do not hide
+  a pool because the model name did not
+  match it, and do not invent a Carbon-specific bucket the statusLine did
+  not send.
+- Agy's topic is the conversation title in
+  `~/.gemini/antigravity-cli/annotations/<conversation>.pbtxt` (`title`),
+  not the last `>` prompt and not the OSC title `agy`. Read that title from
+  Herdr's session id before the quota bind rewrites the local session to the
+  pane id. A subagent has no annotation of its own. Its record is
+  `brain/<parent>/.system_generated/subagents/<id>.json`; `conversationId`
+  in that file is the subagent id, and the parent conversation is the brain
+  directory. Two parents that disagree are not a title. Do not read
+  transcripts. With pane titles on, only `rows_by_agent.agy` draws
+  `$quota_topic` for that cell; other agents keep `terminal_title_stripped`.
+  A session with no title yet still falls back to the visible `>` prompt.
 - OMP stores all accounts in one sanitized provider report so a second pin
   does not lose its quota during debounce. Select by pin; keep a failed
   account's old reading only while the report still identifies that account.
@@ -392,7 +412,9 @@ one, and setting it replaces the user's own `ui.agent_panel_sort`. Rules:
    when tabs open, close, or move (the `layout` path) and never with quota.
    Positions count per Space so a change in one Space rewrites no other.
    The topic line is a dim `tab` cell and then either `terminal_title_stripped`
-   (pane titles on, the default) or `$quota_topic`. Herdr's `tab` token is empty
+   (pane titles on, the default) or `$quota_topic`. Agy is the exception while
+   pane titles are on: its terminal title is the harness name, so its
+   `rows_by_agent` copy uses `$quota_topic` (the annotation title). Herdr's `tab` token is empty
    unless that Space has more than one tab or the tab has a custom label, so a
    lone automatic `1` renders as the title alone. Do not publish a metadata
    token to fill that `1`, and do not make the title row bold: an empty

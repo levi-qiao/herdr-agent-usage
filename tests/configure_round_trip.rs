@@ -3198,7 +3198,10 @@ fn a_saved_pre_muse_full_list_still_configures_when_omp_is_absent() {
         sidebar_has_status_icon_rules(&sidebar) && !sidebar.contains("state_icon"),
         "a once-complete list must still write shared quota rows: {sidebar}"
     );
-    assert!(!sidebar.contains("rows_by_agent"), "{sidebar}");
+    assert!(
+        sidebar_has_agy_session_topic(&sidebar),
+        "Agy keeps a topic-cell override and nothing else per agent: {sidebar}"
+    );
     assert!(homes.claude_settings.exists(), "{sidebar}");
 }
 
@@ -3253,7 +3256,10 @@ fn an_unusable_environment_selection_still_installs_everything() {
     let sidebar = homes.sidebar();
     assert!(sidebar_has_status_icon_rules(&sidebar), "{sidebar}");
     assert!(!sidebar.contains("state_icon"), "{sidebar}");
-    assert!(!sidebar.contains("rows_by_agent"), "{sidebar}");
+    assert!(
+        sidebar_has_agy_session_topic(&sidebar),
+        "Agy keeps a topic-cell override and nothing else per agent: {sidebar}"
+    );
     assert!(homes.claude_settings.exists());
     assert!(homes.agy_settings.exists());
     assert!(homes.cursor_hooks.exists());
@@ -3307,6 +3313,7 @@ fn pane_titles_default_on_and_persist_off_across_repair() {
         &homes.sidebar(),
         "terminal_title_stripped"
     ));
+    assert!(sidebar_has_agy_session_topic(&homes.sidebar()));
     assert!(homes
         .configure(&["--apply", "--pane-titles", "off"])
         .status
@@ -3315,6 +3322,11 @@ fn pane_titles_default_on_and_persist_off_across_repair() {
         &homes.sidebar(),
         "terminal_title_stripped"
     ));
+    assert!(
+        !homes.sidebar().contains("rows_by_agent"),
+        "turning pane titles off drops the Agy topic override: {}",
+        homes.sidebar()
+    );
     assert!(homes.configure(&["--apply"]).status.success());
     assert!(!sidebar_has_token(
         &homes.sidebar(),
@@ -3649,6 +3661,26 @@ fn sidebar_has_token(sidebar: &str, token: &str) -> bool {
     };
     let present = rows.iter().any(|row| row_contains_token(row, token));
     present
+}
+
+/// Pane titles stay on the shared rows. Agy is the one per-agent copy, and
+/// its topic cell is the conversation summary.
+fn sidebar_has_agy_session_topic(sidebar: &str) -> bool {
+    let document = sidebar.parse::<toml_edit::DocumentMut>().unwrap();
+    let Some(by_agent) = document["ui"]["sidebar"]["agents"]["rows_by_agent"].as_table() else {
+        return false;
+    };
+    if by_agent.len() != 1 || !by_agent.contains_key("agy") {
+        return false;
+    }
+    let Some(rows) = by_agent["agy"].as_array() else {
+        return false;
+    };
+    rows.iter()
+        .any(|row| row_contains_token(row, "$quota_topic"))
+        && !rows
+            .iter()
+            .any(|row| row_contains_token(row, "terminal_title_stripped"))
 }
 
 fn tab_shares_row_with_provider_model(sidebar: &str) -> bool {

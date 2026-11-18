@@ -85,27 +85,23 @@ fn claude_fixture_contains_both_subscription_windows() {
 }
 
 #[test]
-fn agy_fixture_requires_an_identifiable_pool() {
-    let mut value = fixture(include_str!("fixtures/agy/statusline-both.json"));
-    assert!(agy::parse_statusline(&value, 1).unwrap().windows.is_empty());
-    value["model"] = serde_json::json!({"display_name": "Gemini Flash"});
+fn agy_fixture_shows_gemini_and_claude_without_a_model_name() {
+    let value = fixture(include_str!("fixtures/agy/statusline-both.json"));
     let snapshot = agy::parse_statusline(&value, 1).unwrap();
-    assert_eq!(snapshot.windows.len(), 3);
+    let labels: Vec<&str> = snapshot
+        .windows
+        .iter()
+        .map(|window| window.display_label())
+        .collect();
+    assert_eq!(labels, ["g5h", "cla", "g7d"]);
     assert!(
         (snapshot
-            .window(WindowKind::Weekly)
+            .window(WindowKind::FiveHour)
             .unwrap()
             .remaining_percent
             - 99.69)
             .abs()
             < 1e-9
-    );
-    assert_eq!(
-        snapshot
-            .window(WindowKind::Monthly)
-            .unwrap()
-            .display_label(),
-        "api"
     );
 }
 

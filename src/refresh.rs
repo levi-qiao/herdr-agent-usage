@@ -1096,7 +1096,7 @@ fn apply_session_summary(pane: &mut AgentPane, summary: &str) {
     pane.session_summary = summary.to_string();
     if matches!(
         pane.harness,
-        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Mimo
+        Harness::Muse | Harness::Cursor | Harness::Grok | Harness::Mimo | Harness::Agy
     ) {
         pane.topic = summary.to_string();
     }
@@ -1775,6 +1775,13 @@ fn load_statusline_snapshot(cache: &CacheStore, provider: Provider) -> Result<Fe
         })?;
     let mut snapshot = observation.snapshot;
     let value = observation.payload;
+    let session_id = value
+        .get("session_id")
+        .or_else(|| value.get("sessionId"))
+        .or_else(|| value.get("conversation_id"))
+        .or_else(|| value.get("conversationId"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     if !snapshot.session_quota_only {
         // Migrate from the original raw observation, not legacy windows
         // merged across a profile. No credential or session reset is needed.
@@ -1787,6 +1794,21 @@ fn load_statusline_snapshot(cache: &CacheStore, provider: Provider) -> Result<Fe
             }
             _ => snapshot,
         };
+    } else if provider == Provider::Agy {
+        // The stored rows are the previous parser's choice of three slots.
+        // The mailbox still has the raw pools, so a spare-slot change applies
+        // to this session on the next read. Another session keeps the rows
+        // its own statusLine stored.
+        if let Ok(parsed) =
+            crate::providers::agy::parse_statusline(&value, snapshot.fetched_at_unix)
+        {
+            snapshot.windows = parsed.windows;
+            if let Some(session_id) = session_id.as_deref() {
+                snapshot
+                    .session_windows
+                    .insert(session_id.to_string(), snapshot.windows.clone());
+            }
+        }
     }
     let previous_cache = cache
         .load(provider)
@@ -1803,13 +1825,6 @@ fn load_statusline_snapshot(cache: &CacheStore, provider: Provider) -> Result<Fe
                 .or_else(|| value.get("promptCache")),
         );
     }
-    let session_id = value
-        .get("session_id")
-        .or_else(|| value.get("sessionId"))
-        .or_else(|| value.get("conversation_id"))
-        .or_else(|| value.get("conversationId"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
     Ok(FetchedSnapshot {
         snapshot,
         preserve_context: true,
@@ -2400,6 +2415,12 @@ mod tests {
         mimo.topic = "old prompt".to_string();
         apply_session_summary(&mut mimo, "MiMo Agent Name Like Grok");
         assert_eq!(mimo.topic, "MiMo Agent Name Like Grok");
+
+        let mut agy = test_pane("w1:p6", Harness::Agy);
+        agy.topic = "raw prompt".to_string();
+        apply_session_summary(&mut agy, "Conversation title");
+        assert_eq!(agy.topic, "Conversation title");
+        assert_eq!(agy.session_summary, "Conversation title");
 
         let mut codex = test_pane("w1:p2", Harness::Codex);
         codex.topic = "screen topic".to_string();
@@ -3615,6 +3636,68 @@ mod tests {
         );
         assert!(fetched.snapshot.session_windows.is_empty());
         assert_eq!(fetched.session_id.as_deref(), Some("current"));
+    }
+
+    #[test]
+    fn an_agy_mailbox_reapplies_pool_rows_without_touching_another_session() {
+        let dir = tempdir().unwrap();
+        let cache = CacheStore::new(dir.path());
+        let observation = serde_json::json!({
+            "snapshot": {
+                "provider": "agy",
+                "source": "agy-statusline",
+                "fetched_at_unix": 10,
+                "session_quota_only": true,
+                "windows": [
+                    {"kind":"five_hour","used_percent":14.0,"remaining_percent":86.0,"source_label":"g7d"},
+                    {"kind":"weekly","used_percent":30.0,"remaining_percent":70.0,"source_label":"cla"},
+                    {"kind":"monthly","used_percent":4.0,"remaining_percent":96.0,"source_label":"g5h"}
+                ],
+                "session_windows": {
+                    "w1:p1": [
+                        {"kind":"five_hour","used_percent":14.0,"remaining_percent":86.0,"source_label":"g7d"},
+                        {"kind":"weekly","used_percent":30.0,"remaining_percent":70.0,"source_label":"cla"},
+                        {"kind":"monthly","used_percent":4.0,"remaining_percent":96.0,"source_label":"g5h"}
+                    ],
+                    "w1:p2": [
+                        {"kind":"five_hour","used_percent":10.0,"remaining_percent":90.0,"source_label":"gem"}
+                    ]
+                }
+            },
+            "payload": {
+                "session_id": "w1:p1",
+                "quota": {
+                    "gemini-5h": {"remaining_fraction": 0.96},
+                    "gemini-weekly": {"remaining_fraction": 0.86},
+                    "3p-5h": {"remaining_fraction": 0.70},
+                    "3p-weekly": {"remaining_fraction": 0.88}
+                }
+            }
+        });
+        std::fs::write(
+            dir.path().join("agy-statusline.observation.json"),
+            observation.to_string(),
+        )
+        .unwrap();
+        let fetched = load_statusline_snapshot(&cache, Provider::Agy).unwrap();
+        let labels: Vec<_> = fetched
+            .snapshot
+            .windows
+            .iter()
+            .map(UsageWindow::display_label)
+            .collect();
+        assert_eq!(labels, ["g7d", "c5h", "c7d"]);
+        let own = fetched.snapshot.session_windows.get("w1:p1").unwrap();
+        assert_eq!(
+            own.iter()
+                .map(UsageWindow::display_label)
+                .collect::<Vec<_>>(),
+            ["g7d", "c5h", "c7d"]
+        );
+        assert_eq!(
+            fetched.snapshot.session_windows.get("w1:p2").unwrap()[0].display_label(),
+            "gem"
+        );
     }
 
     #[test]

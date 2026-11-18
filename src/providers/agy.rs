@@ -3,6 +3,7 @@ use crate::model::{Provider, ProviderSnapshot, ResetAt, UsageWindow, WindowKind}
 use crate::providers::statusline::{parse_context, parse_model};
 use crate::providers::ProviderError;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 /// Spellings whose value is already a `0..=1` fraction.
 const FRACTION_KEYS: [&str; 2] = ["remaining_fraction", "remainingFraction"];
@@ -14,79 +15,45 @@ const GEMINI_WEEKLY_KEYS: [&str; 1] = ["gemini-weekly"];
 const GEMINI_ARGON_WEEKLY_KEYS: [&str; 1] = ["gemini-argon-wtu-weekly"];
 const THIRD_PARTY_FIVE_HOUR_KEYS: [&str; 1] = ["3p-5h"];
 const THIRD_PARTY_WEEKLY_KEYS: [&str; 1] = ["3p-weekly"];
-/// Third-party (Claude/GPT) pool shown as `api` while Gemini is the active model.
-const THIRD_PARTY_API_KEYS: [&str; 2] = ["3p-5h", "3p-weekly"];
+/// The sidebar has three window rows. Pools fill them in this order.
+const SIDEBAR_SLOTS: [WindowKind; 3] = [
+    WindowKind::FiveHour,
+    WindowKind::Weekly,
+    WindowKind::Monthly,
+];
 
-/// The quota pool that the active model draws from.
+/// One Antigravity allowance. Pro exposes three of these: Gemini, Argon,
+/// and the third-party pool shared by Claude and GPT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pool {
     Gemini,
-    GeminiArgon,
-    ThirdParty,
+    Argon,
+    Claude,
 }
 
-impl Pool {
-    fn five_hour_keys(self) -> &'static [&'static str] {
-        match self {
-            Self::Gemini | Self::GeminiArgon => &GEMINI_FIVE_HOUR_KEYS,
-            Self::ThirdParty => &THIRD_PARTY_FIVE_HOUR_KEYS,
-        }
-    }
-
-    fn weekly_keys(self, quota: &serde_json::Map<String, Value>) -> &'static [&'static str] {
-        match self {
-            Self::Gemini => &GEMINI_WEEKLY_KEYS,
-            Self::GeminiArgon => {
-                if has_any_key(quota, &GEMINI_ARGON_WEEKLY_KEYS) {
-                    &GEMINI_ARGON_WEEKLY_KEYS
-                } else {
-                    &GEMINI_WEEKLY_KEYS
-                }
-            }
-            Self::ThirdParty => &THIRD_PARTY_WEEKLY_KEYS,
-        }
-    }
-}
-
-fn has_any_key(quota: &serde_json::Map<String, Value>, keys: &[&str]) -> bool {
-    keys.iter().any(|key| quota.contains_key(*key))
-}
-
-/// Detect which quota pool the active model draws from.
-///
-/// Gemini-family model names contain `gemini`, `flash`, or `learnlm`.
-/// Gemini Argon models contain `argon` and draw their weekly quota from
-/// `gemini-argon-wtu-weekly`.
-/// Third-party model names include Claude variants (`claude`, `sonnet`,
-/// `haiku`, `opus`), GPT models, and OpenAI reasoning series (`o1`, `o3`,
-/// `o4`). Unknown names require an unambiguous single-pool response.
-fn active_pool(model: Option<&str>) -> Option<Pool> {
-    let lower = model?.to_ascii_lowercase();
-    if lower.contains("argon") {
-        Some(Pool::GeminiArgon)
-    } else if lower.contains("gemini") || lower.contains("flash") || lower.contains("learnlm") {
-        Some(Pool::Gemini)
-    } else if lower.contains("claude")
-        || lower.contains("sonnet")
-        || lower.contains("haiku")
-        || lower.contains("opus")
-        || lower.contains("gpt")
-        || lower.starts_with("o1")
-        || lower.starts_with("o3")
-        || lower.starts_with("o4")
-    {
-        Some(Pool::ThirdParty)
-    } else {
-        None
-    }
+#[derive(Clone)]
+struct Reading {
+    pool: Pool,
+    /// The bucket's own period. The sidebar slot this reading lands in is
+    /// separate: three pools share three rows, so a weekly bucket can sit
+    /// in the first row.
+    period: WindowKind,
+    window: UsageWindow,
 }
 
 /// Parse the quota object emitted by Agy/Antigravity's statusLine JSON.
 ///
-/// Agy reports separate Gemini and third-party (Claude/GPT) pools. When the
-/// active model can be identified, only its pool's quota is shown so the
-/// sidebar reflects the limit that actually applies to the current session.
-/// An unknown model with two possible pools supplies diagnostics only.
+/// The payload carries one account's pools side by side. The active model
+/// does not choose which pool is shown: a Carbon pane and a Claude pane on
+/// the same login draw down different pools, and hiding the other one is
+/// how a Pro account lost Argon or Claude. Up to three rows are published,
+/// in pool order Gemini, Argon, Claude. Each pool first contributes the
+/// bucket with the least remaining allowance. A spare row then shows a
+/// weekly bucket that pass left out, so Claude's week is not dropped while
+/// Gemini still has a second period. A row that is still empty after that
+/// keeps the next period in pool order. Labels stay three characters:
+/// `gem` / `arn` / `cla` for a pool's only row, and `g5h` / `g7d` / `c5h` /
+/// `c7d` when that row has to be told apart from another period on screen.
 pub fn parse_statusline(
     value: &Value,
     fetched_at_unix: u64,
@@ -96,50 +63,8 @@ pub fn parse_statusline(
         .and_then(Value::as_object)
         .ok_or_else(|| ProviderError::UnsupportedResponse("missing quota".to_string()))?;
     let model = parse_model(value);
-    let has_gemini_five_hour = has_any_key(quota, &GEMINI_FIVE_HOUR_KEYS);
-    let has_gemini_weekly = has_any_key(quota, &GEMINI_WEEKLY_KEYS);
-    let has_argon_weekly = has_any_key(quota, &GEMINI_ARGON_WEEKLY_KEYS);
-    let has_third_party = has_any_key(quota, &THIRD_PARTY_FIVE_HOUR_KEYS)
-        || has_any_key(quota, &THIRD_PARTY_WEEKLY_KEYS);
-    let has_any_pool =
-        has_gemini_five_hour || has_gemini_weekly || has_argon_weekly || has_third_party;
-    let fallback_pool = match (
-        has_gemini_five_hour,
-        has_gemini_weekly,
-        has_argon_weekly,
-        has_third_party,
-    ) {
-        (_, _, false, false) if has_gemini_five_hour || has_gemini_weekly => Some(Pool::Gemini),
-        (_, false, true, false) => Some(Pool::GeminiArgon),
-        (false, false, false, true) => Some(Pool::ThirdParty),
-        _ => None,
-    };
-    let pool = active_pool(model.as_deref()).or(fallback_pool);
-    let five_hour_keys: &[&str] = pool.map_or(&[] as &[&str], Pool::five_hour_keys);
-    let weekly_keys: &[&str] = pool.map_or(&[] as &[&str], |p| p.weekly_keys(quota));
-    let mut windows = Vec::new();
-    for (kind, keys) in [
-        (WindowKind::FiveHour, five_hour_keys),
-        (WindowKind::Weekly, weekly_keys),
-    ] {
-        if let Some(window) = parse_window(quota, kind, keys, fetched_at_unix)? {
-            windows.push(window);
-        }
-    }
-    // Gemini sessions still have a third-party API pool. Publish it on the
-    // spare monthly slot as `api` so it does not replace the Gemini 5h/7d
-    // rows. A Claude/GPT session already uses that pool for 5h/7d.
-    if matches!(pool, Some(Pool::Gemini | Pool::GeminiArgon)) {
-        if let Some(window) = parse_window(
-            quota,
-            WindowKind::Monthly,
-            &THIRD_PARTY_API_KEYS,
-            fetched_at_unix,
-        )? {
-            windows.push(window.with_source_window("api", None));
-        }
-    }
-    if windows.is_empty() && (pool.is_some() || !has_any_pool) {
+    let windows = sidebar_windows(quota, fetched_at_unix)?;
+    if windows.is_empty() {
         return Err(ProviderError::UnsupportedResponse(
             "quota has no supported windows".to_string(),
         ));
@@ -174,6 +99,161 @@ pub fn parse_statusline(
             .with_model(model)
             .with_context(context),
     )
+}
+
+fn sidebar_windows(
+    quota: &serde_json::Map<String, Value>,
+    fetched_at_unix: u64,
+) -> std::result::Result<Vec<UsageWindow>, ProviderError> {
+    let mut pools = Vec::new();
+    for (pool, buckets) in [
+        (
+            Pool::Gemini,
+            [
+                (WindowKind::FiveHour, &GEMINI_FIVE_HOUR_KEYS as &[&str]),
+                (WindowKind::Weekly, &GEMINI_WEEKLY_KEYS),
+            ]
+            .as_slice(),
+        ),
+        (
+            Pool::Argon,
+            [(WindowKind::Weekly, &GEMINI_ARGON_WEEKLY_KEYS as &[&str])].as_slice(),
+        ),
+        (
+            Pool::Claude,
+            [
+                (WindowKind::FiveHour, &THIRD_PARTY_FIVE_HOUR_KEYS as &[&str]),
+                (WindowKind::Weekly, &THIRD_PARTY_WEEKLY_KEYS),
+            ]
+            .as_slice(),
+        ),
+    ] {
+        let mut readings = Vec::new();
+        for (period, keys) in buckets {
+            if let Some(window) = parse_window(quota, *period, keys, fetched_at_unix)? {
+                readings.push(Reading {
+                    pool,
+                    period: *period,
+                    window,
+                });
+            }
+        }
+        if !readings.is_empty() {
+            pools.push(readings);
+        }
+    }
+
+    let mut chosen: Vec<Reading> = Vec::new();
+    for readings in &pools {
+        if let Some(reading) = tightest(readings) {
+            chosen.push(reading.clone());
+        }
+        if chosen.len() == SIDEBAR_SLOTS.len() {
+            break;
+        }
+    }
+    if chosen.len() < SIDEBAR_SLOTS.len() {
+        // The first pass can spend Claude's only row on the 5h bucket. The
+        // spare row belongs to the weekly that pass skipped, ahead of a
+        // second period from a pool whose week is already on screen.
+        while chosen.len() < SIDEBAR_SLOTS.len() {
+            let Some(reading) = pools
+                .iter()
+                .flatten()
+                .filter(|reading| {
+                    reading.period == WindowKind::Weekly && !already_chosen(&chosen, reading)
+                })
+                .min_by(|left, right| tighter(left, right))
+            else {
+                break;
+            };
+            chosen.push(reading.clone());
+        }
+    }
+    if chosen.len() < SIDEBAR_SLOTS.len() {
+        for readings in &pools {
+            for reading in readings {
+                if already_chosen(&chosen, reading) {
+                    continue;
+                }
+                chosen.push(reading.clone());
+                if chosen.len() == SIDEBAR_SLOTS.len() {
+                    break;
+                }
+            }
+            if chosen.len() == SIDEBAR_SLOTS.len() {
+                break;
+            }
+        }
+    }
+
+    let beside_shorter = chosen
+        .iter()
+        .any(|reading| reading.period == WindowKind::FiveHour);
+    Ok(chosen
+        .iter()
+        .enumerate()
+        .map(|(index, reading)| {
+            let rows_for_pool = chosen
+                .iter()
+                .filter(|other| other.pool == reading.pool)
+                .count();
+            let mut window = reading.window.clone();
+            window.kind = SIDEBAR_SLOTS[index];
+            window.with_source_window(
+                row_label(reading.pool, rows_for_pool, reading.period, beside_shorter),
+                Some(reading.period.duration_seconds()),
+            )
+        })
+        .collect())
+}
+
+fn already_chosen(chosen: &[Reading], reading: &Reading) -> bool {
+    chosen
+        .iter()
+        .any(|existing| existing.pool == reading.pool && existing.period == reading.period)
+}
+
+/// The bucket that runs out first. Equal remaining prefers the shorter
+/// period, which resets sooner.
+fn tightest(readings: &[Reading]) -> Option<&Reading> {
+    readings.iter().min_by(|left, right| tighter(left, right))
+}
+
+fn tighter(left: &Reading, right: &Reading) -> std::cmp::Ordering {
+    left.window
+        .remaining_percent
+        .total_cmp(&right.window.remaining_percent)
+        .then(period_rank(left.period).cmp(&period_rank(right.period)))
+}
+
+fn period_rank(period: WindowKind) -> u8 {
+    match period {
+        WindowKind::FiveHour => 0,
+        WindowKind::Weekly => 1,
+        WindowKind::Monthly => 2,
+    }
+}
+
+fn row_label(
+    pool: Pool,
+    rows_for_pool: usize,
+    period: WindowKind,
+    beside_shorter: bool,
+) -> &'static str {
+    // A lone weekly sitting next to a 5h row has to say `g7d` / `c7d`. The
+    // pool name is only enough when every row on screen is that pool's one
+    // bucket, which is the Pro case (`gem` / `arn` / `cla`).
+    let period_label = rows_for_pool > 1 || (beside_shorter && period != WindowKind::FiveHour);
+    match (pool, period_label, period) {
+        (Pool::Gemini, false, _) => "gem",
+        (Pool::Gemini, _, WindowKind::Weekly) => "g7d",
+        (Pool::Gemini, _, _) => "g5h",
+        (Pool::Argon, _, _) => "arn",
+        (Pool::Claude, false, _) => "cla",
+        (Pool::Claude, _, WindowKind::Weekly) => "c7d",
+        (Pool::Claude, _, _) => "c5h",
+    }
 }
 
 fn parse_window(
@@ -254,13 +334,150 @@ pub fn run_statusline(input: &[u8]) -> std::result::Result<ProviderSnapshot, Pro
     parse_statusline(&value, CacheStore::now_unix())
 }
 
+/// Antigravity CLI home. `AGY_SETTINGS_FILE` points at `settings.json` inside
+/// it; otherwise the CLI's own directory is `~/.gemini/antigravity-cli`.
+pub fn cli_dir() -> Option<PathBuf> {
+    if let Some(settings) = std::env::var_os("AGY_SETTINGS_FILE") {
+        return Path::new(&settings).parent().map(Path::to_path_buf);
+    }
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".gemini/antigravity-cli"))
+}
+
+/// Conversation title Agy stores for this session.
+///
+/// The file is `annotations/<conversation>.pbtxt` and its only field is
+/// `title`. A Herdr session that is a subagent has no annotation of its own;
+/// the subagent record names the parent conversation, and that annotation is
+/// the summary. Two parents that disagree are not a title. Transcripts are
+/// not read.
+pub fn conversation_title(session_id: &str) -> Option<String> {
+    conversation_title_in(&cli_dir()?, session_id)
+}
+
+pub(crate) fn conversation_title_in(home: &Path, session_id: &str) -> Option<String> {
+    let session_id = session_file_id(session_id)?;
+    if let Some(title) = annotation_title_at(&annotation_path(home, session_id)) {
+        return Some(title);
+    }
+    let parent = parent_conversation(home, session_id)?;
+    annotation_title_at(&annotation_path(home, &parent))
+}
+
+fn session_file_id(session_id: &str) -> Option<&str> {
+    let safe = !session_id.is_empty()
+        && session_id.len() <= 128
+        && session_id
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() || character == '-');
+    safe.then_some(session_id)
+}
+
+fn annotation_path(home: &Path, conversation_id: &str) -> PathBuf {
+    home.join("annotations")
+        .join(format!("{conversation_id}.pbtxt"))
+}
+
+fn annotation_title_at(path: &Path) -> Option<String> {
+    let text = read_capped(path, 4 * 1024)?;
+    annotation_title(&text)
+}
+
+fn annotation_title(text: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("title:"))?;
+    let rest = line["title:".len()..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let raw = unescape_quoted(&rest[quote.len_utf8()..], quote)?;
+    let title = raw.trim();
+    (!title.is_empty()).then(|| title.to_string())
+}
+
+fn unescape_quoted(input: &str, quote: char) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = input.chars();
+    while let Some(character) = chars.next() {
+        if character == quote {
+            return Some(out);
+        }
+        if character != '\\' {
+            out.push(character);
+            continue;
+        }
+        match chars.next()? {
+            '\\' => out.push('\\'),
+            '"' => out.push('"'),
+            '\'' => out.push('\''),
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            other => out.push(other),
+        }
+    }
+    None
+}
+
+/// Parent conversation id for a subagent session.
+///
+/// The record lives at `brain/<parent>/.system_generated/subagents/<id>.json`.
+/// Its `conversationId` is the subagent's own id, so the parent is the brain
+/// directory. Two directories that both claim the id are ambiguity, and the
+/// pane keeps whatever topic it already had. The file body is not a title.
+fn parent_conversation(home: &Path, session_id: &str) -> Option<String> {
+    let brains = std::fs::read_dir(home.join("brain")).ok()?;
+    let mut parent = None;
+    for entry in brains.flatten() {
+        let Some(dir_name) = entry.file_name().into_string().ok() else {
+            continue;
+        };
+        if session_file_id(&dir_name).is_none() || dir_name == session_id {
+            continue;
+        }
+        let path = entry
+            .path()
+            .join(".system_generated/subagents")
+            .join(format!("{session_id}.json"));
+        let Some(text) = read_capped(&path, 64 * 1024) else {
+            continue;
+        };
+        let claims_this_session = serde_json::from_str::<Value>(&text)
+            .ok()
+            .as_ref()
+            .and_then(|value| value.get("conversationId"))
+            .and_then(Value::as_str)
+            == Some(session_id);
+        if !claims_this_session {
+            continue;
+        }
+        match &parent {
+            None => parent = Some(dir_name),
+            Some(existing) if existing != &dir_name => return None,
+            Some(_) => {}
+        }
+    }
+    parent
+}
+
+fn read_capped(path: &Path, cap: u64) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > cap {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     #[test]
-    fn parses_both_agy_windows_from_the_active_pool() {
+    fn parses_both_pools_without_asking_which_model_is_active() {
         let value = json!({
             "model": {"display_name": "Claude Sonnet"},
             "quota": {
@@ -272,9 +489,12 @@ mod tests {
         });
         let snapshot = parse_statusline(&value, 1).unwrap();
         assert_eq!(snapshot.provider, Provider::Agy);
+        // Weekly Gemini leads. Claude's 5h is tighter than its week, so the
+        // spare row is that week rather than Gemini's looser 5h.
+        assert_rows(&snapshot, &[("g7d", 80.0), ("c5h", 72.0), ("c7d", 91.0)]);
         assert_eq!(
             snapshot.window(WindowKind::FiveHour).unwrap().resets_at,
-            Some(ResetAt::from_unix_seconds(1_786_798_800))
+            Some(ResetAt::from_unix_seconds(1_787_400_000))
         );
     }
 
@@ -349,12 +569,12 @@ mod tests {
     }
 
     #[test]
-    fn ignores_missing_pool_without_marking_the_window_unavailable() {
+    fn a_single_weekly_bucket_uses_the_pool_name_not_a_five_hour_label() {
         let value = json!({
             "quota": {"gemini-weekly": {"remaining_fraction": 0.61}}
         });
         let snapshot = parse_statusline(&value, 1).unwrap();
-        assert!(snapshot.window(WindowKind::FiveHour).is_none());
+        assert_rows(&snapshot, &[("gem", 61.0)]);
     }
 
     #[test]
@@ -378,90 +598,64 @@ mod tests {
     }
 
     #[test]
-    fn routes_claude_model_to_third_party_pool() {
-        // gemini-5h is exhausted (0 %), but the active model is Claude so the
-        // sidebar should show the 3p-5h value (52 %) not the minimum (0 %).
-        let value = json!({
-            "model": {"display_name": "Claude Sonnet 4.5"},
-            "quota": {
-                "gemini-5h": {"remaining_fraction": 0.0, "reset_in_seconds": 1000},
-                "gemini-weekly": {"remaining_fraction": 0.8, "reset_in_seconds": 7200},
-                "3p-5h": {"remaining_fraction": 0.52, "reset_in_seconds": 5000},
-                "3p-weekly": {"remaining_fraction": 0.84, "reset_in_seconds": 90000}
-            }
+    fn pro_shows_gemini_argon_and_claude_whatever_model_is_selected() {
+        let quota = json!({
+            "gemini-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
+            "gemini-weekly": {"remaining_fraction": 0.9477867, "reset_in_seconds": 371488},
+            "gemini-argon-wtu-weekly": {"remaining_fraction": 0.5464704, "reset_in_seconds": 450186},
+            "3p-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
+            "3p-weekly": {"remaining_fraction": 0.4997628, "reset_in_seconds": 473570}
         });
-        let snapshot = parse_statusline(&value, 0).unwrap();
-        // 3p-5h reset_in_seconds=5000 from base 0 → resets_at 5000
-        assert_eq!(
-            snapshot.window(WindowKind::FiveHour).unwrap().resets_at,
-            Some(ResetAt::from_unix_seconds(5000))
-        );
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 52.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 84.0);
+        for model in [
+            None,
+            Some("Orchestrator (Argon)"),
+            Some("Claude Sonnet 4.5"),
+        ] {
+            let mut value = json!({"quota": quota});
+            if let Some(model) = model {
+                value["model"] = json!({"display_name": model});
+            }
+            let snapshot = parse_statusline(&value, 0).unwrap();
+            assert_rows(
+                &snapshot,
+                &[("gem", 94.77867), ("arn", 54.64704), ("cla", 49.97628)],
+            );
+            let gemini = snapshot.window(WindowKind::FiveHour).unwrap();
+            assert_eq!(
+                gemini.duration_seconds,
+                Some(WindowKind::Weekly.duration_seconds())
+            );
+            assert_eq!(gemini.resets_at, Some(ResetAt::from_unix_seconds(371488)));
+        }
     }
 
     #[test]
-    fn routes_gemini_model_to_gemini_pool() {
-        // 3p-5h is low (10 %), but the active model is Gemini so the sidebar
-        // should show the gemini-5h value (75 %) not the minimum (10 %).
-        let value = json!({
-            "model": {"display_name": "Gemini Flash"},
-            "quota": {
-                "gemini-5h": {"remaining_fraction": 0.75, "reset_in_seconds": 1000},
-                "gemini-weekly": {"remaining_fraction": 0.9, "reset_in_seconds": 7200},
-                "3p-5h": {"remaining_fraction": 0.1, "reset_in_seconds": 5000},
-                "3p-weekly": {"remaining_fraction": 0.2, "reset_in_seconds": 90000}
-            }
+    fn a_plan_without_argon_keeps_both_gemini_periods_and_claude() {
+        let quota = json!({
+            "gemini-5h": {"remaining_fraction": 0.68758285, "reset_in_seconds": 8438},
+            "gemini-weekly": {"remaining_fraction": 0.9218957, "reset_in_seconds": 595238},
+            "3p-5h": {"remaining_fraction": 1, "reset_in_seconds": 17426},
+            "3p-weekly": {"remaining_fraction": 1, "reset_in_seconds": 604226}
         });
-        let snapshot = parse_statusline(&value, 0).unwrap();
-        // gemini-5h reset_in_seconds=1000 from base 0 → resets_at 1000
-        assert_eq!(
-            snapshot.window(WindowKind::FiveHour).unwrap().resets_at,
-            Some(ResetAt::from_unix_seconds(1000))
-        );
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 75.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 90.0);
-        assert_remaining_pct(&snapshot, WindowKind::Monthly, 10.0);
-        assert_eq!(
-            snapshot
-                .window(WindowKind::Monthly)
-                .unwrap()
-                .display_label(),
-            "api"
-        );
+        for model in [
+            None,
+            Some("Orchestrator (Carbon)"),
+            Some("Gemini 4 Carbon (High)"),
+        ] {
+            let mut value = json!({"quota": quota});
+            if let Some(model) = model {
+                value["model"] = json!({"id": model, "display_name": model});
+            }
+            let snapshot = parse_statusline(&value, 0).unwrap();
+            assert_rows(
+                &snapshot,
+                &[("g5h", 68.758285), ("cla", 100.0), ("g7d", 92.18957)],
+            );
+        }
     }
 
     #[test]
-    fn routes_gemini_argon_model_to_argon_weekly_quota() {
-        let value = json!({
-            "model": {"display_name": "Gemini 4 Argon (High)"},
-            "quota": {
-                "gemini-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
-                "gemini-weekly": {"remaining_fraction": 0.9477867, "reset_in_seconds": 371488},
-                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.5464704, "reset_in_seconds": 450186},
-                "3p-5h": {"remaining_fraction": 1.0, "reset_in_seconds": 17784},
-                "3p-weekly": {"remaining_fraction": 0.4997628, "reset_in_seconds": 473570}
-            }
-        });
-        let snapshot = parse_statusline(&value, 0).unwrap();
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 100.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 54.64704);
-        assert_eq!(
-            snapshot.window(WindowKind::Weekly).unwrap().resets_at,
-            Some(ResetAt::from_unix_seconds(450186))
-        );
-        assert_remaining_pct(&snapshot, WindowKind::Monthly, 49.97628);
-        assert_eq!(
-            snapshot
-                .window(WindowKind::Monthly)
-                .unwrap()
-                .display_label(),
-            "api"
-        );
-    }
-
-    #[test]
-    fn gemini_argon_falls_back_to_gemini_weekly_when_argon_bucket_missing() {
+    fn both_gemini_periods_show_when_the_argon_bucket_is_absent() {
         let value = json!({
             "model": {"display_name": "Gemini 4 Argon"},
             "quota": {
@@ -470,24 +664,13 @@ mod tests {
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 100.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 85.0);
+        // Weekly is the tighter Gemini bucket, so it leads. Both periods
+        // still have a row when Argon is not in the payload.
+        assert_rows(&snapshot, &[("g7d", 85.0), ("g5h", 100.0)]);
     }
 
     #[test]
-    fn parses_unambiguous_argon_weekly_bucket_without_model() {
-        let value = json!({
-            "quota": {
-                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.46, "reset_in_seconds": 3600}
-            }
-        });
-        let snapshot = parse_statusline(&value, 0).unwrap();
-        assert!(snapshot.window(WindowKind::FiveHour).is_none());
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 46.0);
-    }
-
-    #[test]
-    fn an_unknown_model_does_not_guess_between_gemini_and_argon_weekly_pools() {
+    fn argon_keeps_its_own_row_beside_both_gemini_periods() {
         let value = json!({
             "model": {"display_name": "Future Model XYZ"},
             "quota": {
@@ -497,11 +680,22 @@ mod tests {
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
-        assert!(snapshot.windows.is_empty());
+        assert_rows(&snapshot, &[("g7d", 85.0), ("arn", 46.0), ("g5h", 90.0)]);
     }
 
     #[test]
-    fn an_integer_third_party_remaining_fraction_still_renders_api() {
+    fn an_argon_only_bucket_is_labeled_arn() {
+        let value = json!({
+            "quota": {
+                "gemini-argon-wtu-weekly": {"remaining_fraction": 0.46, "reset_in_seconds": 3600}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_rows(&snapshot, &[("arn", 46.0)]);
+    }
+
+    #[test]
+    fn an_integer_third_party_fraction_is_a_full_claude_pool() {
         let value = json!({
             "model": {"display_name": "Gemini 3.8 Flash (High)"},
             "quota": {
@@ -512,20 +706,29 @@ mod tests {
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 85.21118);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 63.42774);
-        assert_remaining_pct(&snapshot, WindowKind::Monthly, 100.0);
-        assert_eq!(
-            snapshot
-                .window(WindowKind::Monthly)
-                .unwrap()
-                .display_label(),
-            "api"
+        assert_rows(
+            &snapshot,
+            &[("g7d", 63.42774), ("c5h", 100.0), ("c7d", 100.0)],
         );
     }
 
     #[test]
-    fn a_third_party_session_does_not_relabel_gemini_as_api() {
+    fn a_tighter_claude_five_hour_keeps_the_claude_week() {
+        let value = json!({
+            "model": {"display_name": "Orchestrator (Carbon)"},
+            "quota": {
+                "gemini-5h": {"remaining_fraction": 0.96, "reset_in_seconds": 17040},
+                "gemini-weekly": {"remaining_fraction": 0.86, "reset_in_seconds": 577800},
+                "3p-5h": {"remaining_fraction": 0.70, "reset_in_seconds": 5160},
+                "3p-weekly": {"remaining_fraction": 0.88, "reset_in_seconds": 577800}
+            }
+        });
+        let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_rows(&snapshot, &[("g7d", 86.0), ("c5h", 70.0), ("c7d", 88.0)]);
+    }
+
+    #[test]
+    fn claude_and_gemini_rows_stay_labeled_as_their_own_pools() {
         let value = json!({
             "model": {"display_name": "Claude Sonnet 4.5"},
             "quota": {
@@ -536,13 +739,15 @@ mod tests {
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
-        assert!(snapshot.window(WindowKind::Monthly).is_none());
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 52.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 84.0);
+        assert_rows(&snapshot, &[("g5h", 0.0), ("cla", 52.0), ("g7d", 80.0)]);
+        assert!(snapshot
+            .windows
+            .iter()
+            .all(|window| window.display_label() != "api"));
     }
 
     #[test]
-    fn an_unknown_model_does_not_mix_two_quota_pools() {
+    fn an_unnamed_model_still_shows_each_pool() {
         let value = json!({
             "model": {"display_name": "Future Model XYZ"},
             "quota": {
@@ -551,26 +756,24 @@ mod tests {
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
-        assert!(snapshot.windows.is_empty());
+        assert_rows(&snapshot, &[("gem", 90.0), ("cla", 30.0)]);
     }
 
     #[test]
-    fn routes_gpt_oss_to_third_party_pool() {
+    fn a_third_party_pool_with_room_shows_both_of_its_periods() {
         let value = json!({
             "model": {"display_name": "GPT-OSS 120B (Medium)"},
             "quota": {
-                "gemini-5h": {"remaining_fraction": 0.0, "reset_in_seconds": 1000},
                 "3p-5h": {"remaining_fraction": 0.52, "reset_in_seconds": 5000},
                 "3p-weekly": {"remaining_fraction": 0.84, "reset_in_seconds": 90000}
             }
         });
         let snapshot = parse_statusline(&value, 0).unwrap();
+        assert_rows(&snapshot, &[("c5h", 52.0), ("c7d", 84.0)]);
         assert_eq!(
             snapshot.window(WindowKind::FiveHour).unwrap().resets_at,
             Some(ResetAt::from_unix_seconds(5000))
         );
-        assert_remaining_pct(&snapshot, WindowKind::FiveHour, 52.0);
-        assert_remaining_pct(&snapshot, WindowKind::Weekly, 84.0);
     }
 
     /// A percentage below 1 must not be mistaken for a fraction. Reading
@@ -623,11 +826,140 @@ mod tests {
         .is_err());
     }
 
+    fn assert_rows(snapshot: &ProviderSnapshot, rows: &[(&str, f64)]) {
+        assert_eq!(
+            snapshot.windows.len(),
+            rows.len(),
+            "labels {:?}",
+            snapshot
+                .windows
+                .iter()
+                .map(UsageWindow::display_label)
+                .collect::<Vec<_>>()
+        );
+        for (window, (label, remaining)) in snapshot.windows.iter().zip(rows) {
+            assert_eq!(window.display_label(), *label);
+            assert!(
+                (window.remaining_percent - remaining).abs() < 1e-9,
+                "{label} remaining {} != {remaining}",
+                window.remaining_percent
+            );
+        }
+    }
+
     fn assert_remaining_pct(snapshot: &ProviderSnapshot, kind: WindowKind, expected: f64) {
         let actual = snapshot.window(kind).unwrap().remaining_percent;
         assert!(
             (actual - expected).abs() < 1e-9,
             "{kind:?} remaining {actual} != {expected}"
         );
+    }
+
+    #[test]
+    fn annotation_title_is_the_conversation_summary() {
+        let home = tempfile::tempdir().unwrap();
+        let id = "aee18af1-1316-4f4e-a62e-a8e74423329a";
+        write_annotation(home.path(), id, "Miao story");
+        assert_eq!(
+            conversation_title_in(home.path(), id).as_deref(),
+            Some("Miao story")
+        );
+    }
+
+    #[test]
+    fn annotation_title_accepts_the_unspaced_field_the_cli_writes() {
+        let home = tempfile::tempdir().unwrap();
+        let id = "22222222-2222-2222-2222-222222222222";
+        let dir = home.path().join("annotations");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{id}.pbtxt")), "title:\"Unspaced\"\n").unwrap();
+        assert_eq!(
+            conversation_title_in(home.path(), id).as_deref(),
+            Some("Unspaced")
+        );
+    }
+
+    #[test]
+    fn annotation_title_unescapes_quotes_and_rejects_an_empty_title() {
+        let home = tempfile::tempdir().unwrap();
+        let id = "11111111-1111-1111-1111-111111111111";
+        write_annotation(home.path(), id, r#"say \"hi\""#);
+        // The helper writes the value raw inside quotes, so the file contains
+        // the backslash escapes and the parser turns them back into quotes.
+        assert_eq!(
+            conversation_title_in(home.path(), id).as_deref(),
+            Some("say \"hi\"")
+        );
+        write_annotation(home.path(), id, "   ");
+        assert_eq!(conversation_title_in(home.path(), id), None);
+    }
+
+    #[test]
+    fn a_subagent_uses_its_parent_conversation_title() {
+        let home = tempfile::tempdir().unwrap();
+        let parent = "f300c5e0-1616-456b-9076-15058b0203e5";
+        let child = "249f6bd0-8a10-40f4-a58b-afd6225629f5";
+        write_annotation(home.path(), parent, "Parent summary");
+        // The CLI stores the subagent's own id in conversationId. The parent
+        // conversation is the brain directory that holds the record.
+        write_subagent(home.path(), parent, child, child);
+        assert_eq!(
+            conversation_title_in(home.path(), child).as_deref(),
+            Some("Parent summary")
+        );
+        // The child's own annotation wins when Agy has written one.
+        write_annotation(home.path(), child, "Child summary");
+        assert_eq!(
+            conversation_title_in(home.path(), child).as_deref(),
+            Some("Child summary")
+        );
+    }
+
+    #[test]
+    fn disagreeing_subagent_parents_are_not_a_title() {
+        let home = tempfile::tempdir().unwrap();
+        let child = "249f6bd0-8a10-40f4-a58b-afd6225629f5";
+        let first = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let second = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        write_annotation(home.path(), first, "One");
+        write_annotation(home.path(), second, "Two");
+        write_subagent(home.path(), first, child, first);
+        write_subagent(home.path(), second, child, second);
+        assert_eq!(conversation_title_in(home.path(), child), None);
+    }
+
+    #[test]
+    fn a_session_id_cannot_escape_the_cli_directory() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(
+            conversation_title_in(home.path(), "../annotations/secret"),
+            None
+        );
+        assert_eq!(conversation_title_in(home.path(), ""), None);
+    }
+
+    fn write_annotation(home: &std::path::Path, id: &str, title: &str) {
+        let dir = home.join("annotations");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{id}.pbtxt")),
+            format!("title: \"{title}\"\n"),
+        )
+        .unwrap();
+    }
+
+    fn write_subagent(home: &std::path::Path, parent: &str, child: &str, conversation_id: &str) {
+        let dir = home
+            .join("brain")
+            .join(parent)
+            .join(".system_generated/subagents");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("{child}.json")),
+            format!(
+                r#"{{"conversationId":"{conversation_id}","subagentDescriptor":{{"role":"task"}}}}"#
+            ),
+        )
+        .unwrap();
     }
 }
