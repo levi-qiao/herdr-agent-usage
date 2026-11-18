@@ -166,14 +166,7 @@ fn fetch_subscription(
     credentials: &MuseCredentials,
     now: u64,
 ) -> std::result::Result<ProviderSnapshot, ProviderError> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        // Like the Muse launcher's own `--max-redirs 0`: the token is only
-        // ever for this host, and a redirect is an error, not a new target.
-        .redirects(0)
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .post(SUBSCRIPTION_URL)
         .set(

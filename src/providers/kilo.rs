@@ -34,7 +34,6 @@ use crate::model::{Provider, ProviderSnapshot, ResetAt, UsageWindow, WindowKind}
 use crate::providers::ProviderError;
 use anyhow::{Context, Result};
 use serde_json::Value;
-use std::time::Duration;
 
 /// Official host and path. The credential is only ever sent here; a redirect
 /// away from this host drops the request rather than following it.
@@ -57,13 +56,7 @@ pub fn fetch(credential: &GatewayCredential) -> Result<PassOutcome> {
     if access.is_empty() {
         return Err(ProviderError::MissingCredentials.into());
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        // A credential-bearing request must not be replayed to another host.
-        .redirects(0)
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .get(&format!("{KILO_PASS_URL}?{KILO_PASS_QUERY}"))
         .set("Authorization", &format!("Bearer {access}"))

@@ -40,7 +40,6 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 const DEFAULT_API_SERVER_URL: &str = "https://server.codeium.com";
 const GET_USER_STATUS_PATH: &str = "/exa.seat_management_pb.SeatManagementService/GetUserStatus";
@@ -103,11 +102,7 @@ pub fn fetch_for_sessions(session_ids: &[String]) -> Result<ProviderSnapshot> {
             "locale": "en"
         }
     });
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(5))
-        .timeout_read(Duration::from_secs(10))
-        .timeout_write(Duration::from_secs(10))
-        .build();
+    let agent = crate::providers::http_agent();
     let response = agent
         .post(&url)
         .set("Content-Type", "application/json")
