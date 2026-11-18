@@ -591,7 +591,7 @@ fn rewrite_quota_sidebar_with_titles(
         .and_then(Item::as_value)
         .is_some_and(has_rows_marker);
     let rows_safe = rows_managed || original_rows.is_none_or(is_safe_to_take_over);
-    let managed_rows = build_managed_rows(
+    let (managed_rows, topic_line) = build_managed_rows(
         original_rows,
         layout,
         fields,
@@ -603,24 +603,29 @@ fn rewrite_quota_sidebar_with_titles(
             RowRewrite::Preserve
         },
     )?;
-    // Identity is ink-white for every harness; status colour is the exclusive
-    // `$quota_icon` / `_working` / `_done` twin — never a second `state_icon`.
-    let skipped = if !rows_safe {
-        add_provider_rows(table, &managed_rows, agents)?
+    // Agy's terminal title is the harness name. Use its conversation topic
+    // in the plugin's caption, including when the shared rows are user-owned.
+    let agy_rows = if topic_line == PaneTitles::On && agents.contains(&Harness::Agy) {
+        agy_session_topic_rows(&managed_rows)
     } else {
-        remove_managed_provider_rows(table, agents);
-        Vec::new()
+        None
     };
     if rows_safe {
-        let mut rows_value = Value::Array(managed_rows.clone());
+        remove_managed_provider_rows(table, agents);
+    }
+    let provider_rows = selected_providers(agents).filter_map(|provider| {
+        if let ("agy", Some(rows)) = (provider, agy_rows.as_ref()) {
+            return Some((provider, rows));
+        }
+        (!rows_safe).then_some((provider, &managed_rows))
+    });
+    let skipped = add_provider_rows(table, provider_rows)?;
+    if rows_safe {
+        let mut rows_value = Value::Array(managed_rows);
         rows_value
             .decor_mut()
             .set_suffix(format!(" # {}", identity::row_marker()));
         table.insert("rows", Item::Value(rows_value));
-        // Agy's OSC title is the harness name. With pane titles on, every
-        // other agent still shows `terminal_title_stripped`; Agy shows the
-        // conversation summary on `$quota_topic` instead.
-        install_agy_session_topic_row(table, &managed_rows, agents, pane_titles)?;
     }
     remove_managed_selection_theme(&mut document);
     Ok((document.to_string(), skipped))
@@ -639,7 +644,7 @@ fn build_managed_rows(
     pane_titles: PaneTitles,
     original_is_managed: bool,
     rewrite: RowRewrite,
-) -> Result<Array> {
+) -> Result<(Array, PaneTitles)> {
     let preserved = match rewrite {
         // Group headers replace the per-pane workspace/tab identity row:
         // starting from Herdr's stock machine/workspace/tab list would print
@@ -707,7 +712,7 @@ fn build_managed_rows(
         updated_rows = reordered;
     }
     retain_selected_fields(&mut updated_rows, fields);
-    Ok(updated_rows)
+    Ok((updated_rows, topic_line))
 }
 
 fn is_managed_caption_row(row: &Array) -> bool {
@@ -1067,68 +1072,25 @@ fn configured_token_name(value: &Value) -> Option<&str> {
     })
 }
 
-/// Agy-only copy of the managed rows, with the topic cell pointing at the
-/// conversation summary. Absent when pane titles are off, Agy is not
-/// selected, the topic cell is already `$quota_topic`, or the user owns the
-/// `agy` entry. The provider-row marker lets uninstall remove just this copy.
-fn install_agy_session_topic_row(
-    table: &mut Table,
-    rows: &Array,
-    agents: &[Harness],
-    pane_titles: PaneTitles,
-) -> Result<()> {
-    if pane_titles != PaneTitles::On || !agents.contains(&Harness::Agy) {
-        return Ok(());
-    }
-    let Some(rewritten) = session_topic_rows(rows) else {
-        return Ok(());
-    };
-    let rows_by_agent = table
-        .entry("rows_by_agent")
-        .or_insert(Item::Table(Table::new()))
-        .as_table_mut()
-        .context("Herdr ui.sidebar.agents.rows_by_agent must be a table")?;
-    if let Some(existing) = rows_by_agent.get("agy") {
-        let managed = existing.as_value().is_some_and(has_provider_style_marker);
-        if !managed {
-            return Ok(());
-        }
-    }
-    let mut value = Value::Array(rewritten);
-    value
-        .decor_mut()
-        .set_suffix(format!(" # {}", identity::provider_marker()));
-    rows_by_agent.insert("agy", Item::Value(value));
-    Ok(())
+fn agy_session_topic_rows(rows: &Array) -> Option<Array> {
+    let mut rows = rows.clone();
+    let caption = rows
+        .iter_mut()
+        .filter_map(Value::as_array_mut)
+        .find(|row| is_managed_tab_topic_row(row))?;
+    let title = caption.get_mut(1)?.as_inline_table_mut()?;
+    title.insert("token", Value::from("$quota_topic"));
+    Some(rows)
 }
 
-fn session_topic_rows(rows: &Array) -> Option<Array> {
-    let mut copied = rows.clone();
-    let mut changed = false;
-    for row in copied.iter_mut() {
-        let Some(items) = row.as_array_mut() else {
-            continue;
-        };
-        for item in items.iter_mut() {
-            if let Some(table) = item.as_inline_table_mut() {
-                if table.get("token").and_then(Value::as_str) == Some("terminal_title_stripped") {
-                    table.insert("token", Value::from("$quota_topic"));
-                    changed = true;
-                }
-            } else if item.as_str() == Some("terminal_title_stripped") {
-                *item = Value::from("$quota_topic");
-                changed = true;
-            }
-        }
-    }
-    changed.then_some(copied)
-}
-
-fn add_provider_rows(
+fn add_provider_rows<'a>(
     table: &mut Table,
-    rows: &Array,
-    agents: &[Harness],
+    rows: impl Iterator<Item = (&'static str, &'a Array)>,
 ) -> Result<Vec<&'static str>> {
+    let mut rows = rows.peekable();
+    if rows.peek().is_none() {
+        return Ok(Vec::new());
+    }
     let rows_by_agent = table
         .entry("rows_by_agent")
         .or_insert(Item::Table(Table::new()))
@@ -1136,7 +1098,7 @@ fn add_provider_rows(
         .context("Herdr ui.sidebar.agents.rows_by_agent must be a table")?;
 
     let mut skipped = Vec::new();
-    for provider in selected_providers(agents) {
+    for (provider, rows) in rows {
         let is_managed = rows_by_agent
             .get(provider)
             .and_then(Item::as_value)
@@ -1266,7 +1228,7 @@ fn append_quota_rows(rows: &mut Array, layout: SidebarLayout, pane_titles: PaneT
 /// The scrolling terminal title occupies the topic cell. It is the same fact
 /// as `$quota_topic` for these panes, and the native token is the one Herdr
 /// marquee-scrolls. Off keeps the extracted topic. Agy is the exception:
-/// [`install_agy_session_topic_row`] swaps this cell for `$quota_topic`,
+/// [`agy_session_topic_rows`] swaps this cell for `$quota_topic`,
 /// because its terminal title is the harness name.
 fn append_topic_row(rows: &mut Array, pane_titles: PaneTitles) {
     let token = match pane_titles {
@@ -2000,6 +1962,43 @@ mod tests {
     }
 
     #[test]
+    fn agy_uses_conversation_title_with_custom_shared_rows() {
+        let original = "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"pane\"]]\n";
+        for layout in SidebarLayout::CHOICES {
+            let rewrite = |input, titles| {
+                add_quota_row_with_titles(
+                    input,
+                    &[Harness::Agy, Harness::Claude],
+                    layout,
+                    SidebarRowGap::default(),
+                    FieldSet::all(),
+                    BrandColors::On,
+                    titles,
+                )
+                .unwrap()
+            };
+            let on = rewrite(original, PaneTitles::On);
+            let agy = provider_token_names(&on, "agy");
+            let claude = provider_token_names(&on, "claude");
+            assert_eq!(shared_row_names(&on), ["state_icon", "pane"]);
+            assert!(agy.iter().any(|token| token == "pane"));
+            assert!(agy.iter().any(|token| token == "$quota_topic"));
+            assert!(!agy.iter().any(|token| token == "terminal_title_stripped"));
+            assert!(claude
+                .iter()
+                .any(|token| token == "terminal_title_stripped"));
+            assert!(!claude.iter().any(|token| token == "$quota_topic"));
+            assert_eq!(rewrite(&on, PaneTitles::On), on);
+
+            let off = rewrite(&on, PaneTitles::Off);
+            assert!(provider_token_names(&off, "claude")
+                .iter()
+                .any(|token| token == "$quota_topic"));
+            assert_eq!(rewrite(&off, PaneTitles::On), on);
+        }
+    }
+
+    #[test]
     fn custom_user_title_rows_survive_preserve_path() {
         let original = "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"pane\", \"terminal_title_stripped\"]]\n";
         for layout in SidebarLayout::CHOICES {
@@ -2019,6 +2018,8 @@ mod tests {
                 let result = rewrite(original);
                 assert!(result.contains("\"pane\""), "{result}");
                 assert!(result.contains("rows_by_agent"), "{result}");
+                let agy = provider_token_names(&result, "agy");
+                assert!(agy.iter().any(|token| token == "terminal_title_stripped"));
                 assert_eq!(rewrite(&result), result);
             }
         }
