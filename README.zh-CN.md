@@ -109,7 +109,8 @@ docs/agent-setup.zh-CN.md（中文）或 docs/agent-setup.md（英文）执行�
    omp（omp，~/.omp）、devin（devin，~/.local/share/devin）、
    muse（muse 或 muse-code，~/.config/muse）、
    cursor（cursor 或 cursor-agent，~/.cursor）、
-   kilo（kilo，~/.local/share/kilo）。
+   kilo（kilo，~/.local/share/kilo）、
+   mimo（mimo，~/.local/share/mimocode）。
    先打印探测结果。一个都没有就装 all，并说明。
 
 3. 在仓库里：若是干净的 main 先 git pull --ff-only，然后
@@ -121,16 +122,21 @@ docs/agent-setup.zh-CN.md（中文）或 docs/agent-setup.md（英文）执行�
    - 等到 configure/refresh 日志 succeeded（invoke 会在 running 时就返回）。
    - herdr integration status；已探测到且为 not installed 或 outdated 的，执行
      herdr integration install <id>（claude、codex、grok、opencode、pi、omp、
-     devin、cursor、kilo；agy 和 muse 不需要）。用户没有的 CLI 不要装。
-   - 字体：configure 会把 Herdr Agent Icons Max 拷到 ~/Library/Fonts（macOS）
-     或 ~/.local/share/fonts（Linux），且仅当 Ghostty/kitty 配置已存在时写入
-     映射。Linux 对该字体目录跑 fc-cache。判断当前终端（TERM_PROGRAM /
-     KITTY_WINDOW_ID / WEZTERM_EXECUTABLE）。PUA U+E1A0–U+E1B6 必须显式映射，
-     否则格子是方框或「?」。Ghostty：
-     font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max"
-     （以及 U+E1C0–U+E1C5），包在 # BEGIN/END herdr-agent-usage font 里。
-     kitty：symbol_map 同样范围到 Herdr Agent Icons Max。WezTerm：把该 family
-     加进 font_with_fallback。VS Code/Cursor：追加到
+     devin、cursor、kilo；agy、muse 和 mimo 不需要）。MiMo 没有 Herdr 原生集成；
+     由自定义 `mimo` 代理上报（例如 mimo-code-herdr）。用户没有的 CLI 不要装。
+   - 字体：configure 会把 Herdr Agent Icons Max 和独立的单字形字体
+     Herdr Agent MiMo 拷到 ~/Library/Fonts（macOS）或 ~/.local/share/fonts
+     （Linux），且仅当 Ghostty/kitty 配置已存在时写入映射。Linux 对该字体目录
+     跑 fc-cache。判断当前终端（TERM_PROGRAM / KITTY_WINDOW_ID /
+     WEZTERM_EXECUTABLE）。PUA U+E1A0–U+E1B6 和 U+E1C0–U+E1C5 必须显式映射到
+     Herdr Agent Icons Max，U+E1B7 必须单独映射到 Herdr Agent MiMo（不要并入
+     Icons Max 的区间），否则格子是方框或「?」。Ghostty：
+     font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max"、
+     font-codepoint-map = U+E1B7="Herdr Agent MiMo"，以及
+     font-codepoint-map = U+E1C0-U+E1C5="Herdr Agent Icons Max"，
+     包在 # BEGIN/END herdr-agent-usage font 里。
+     kitty：symbol_map 同样范围到同样的字体。WezTerm：把这两个 family
+     加进 font_with_fallback。VS Code/Cursor：把两者都追加到
      terminal.integrated.fontFamily。然后重载终端（Ghostty cmd+shift+,，
      kitty ctrl+shift+f5）。Muse 故意用文本标记 ◈。宽栏里同一厂商的嵌套子行
      本来就没有图标。1.6.1 之后仍是黄色「?」多半是终端没映射；更旧版本工作态
@@ -172,7 +178,7 @@ herdr plugin pane open --plugin herdr-agent-usage --entrypoint settings --focus
 | Pane titles | 开启（默认）时 topic 行显示会滚动的终端标题；关闭则保留提取出的 topic。标签名和它同一行 |
 | Agent order | 按 Space 分组，组内剩余额度最少优先（默认）；按 Space 保持标签页顺序、同一账号的标签页放在一起；或使用 Herdr 自己的排序 |
 | Low quota alert | 关闭，或设置 1%–100% 的提醒阈值 |
-| Agents | Claude、Codex、Grok、Agy、OpenCode、Pi、OMP、Devin、Muse、Cursor、Kilo |
+| Agents | Claude、Codex、Grok、Agy、OpenCode、Pi、OMP、Devin、Muse、Cursor、Kilo、MiMo |
 
 方向键或空格修改，`a` 应用，`q` 关闭。脚本配置选项见 `./install.sh --help`。
 Claude 状态栏节奏是独立开关，默认开启以保持升级前行为；可用 `./install.sh --statusline-pace off` 关闭，关闭时仍会正常采集额度观测并供侧栏使用。
@@ -192,6 +198,7 @@ Claude 状态栏节奏是独立开关，默认开启以保持升级前行为；�
 | Pi | 规范 Codex collector 的额度 | 仅在记录的账号一致时复用 |
 | OMP | `omp usage --json --provider <id>` | usage 账号与会话 credential pin 一致；多个已存 API key（omp 的报告不带身份信息）时显示整个池（`1/2 keys usable · next 3h10m`） |
 | Kilo Code | Kilo Pass 账号状态（`kiloPass.getState`）；30d | Kilo `auth.json` 里的 OAuth 网关登录，且只对后端为 Kilo Gateway 的会话生效；上下文取自该会话的消息与 Kilo 的模型目录 |
+| MiMo Code | 无官方额度 API；只显示 `cx`（5h、7d、30d 留空） | 只读 `mimocode.db`（默认 `~/.local/share/mimocode/mimocode.db`）；不读取凭据表 |
 
 Claude Code 状态栏始终保留用户自己的 statusLine 输出。**StatusLine pace** 默认开启以保持现有行为；
 关闭后不再追加节奏。开启时会在末尾追加当前生效额度窗口的消耗节奏，例如 `⏱ 5h ↓12%`：
@@ -217,7 +224,7 @@ Claude/Agy 没有可靠的服务账号 ID，因此不跨会话共享观测值。
 
 | 现象 | 检查 |
 | --- | --- |
-| 品牌图标是方框或 `?` | 字体没装上，或当前终端没有 U+E1A0–U+E1B6 映射——见 [让 Agent 装完整](#让-agent-装完整)。`configure` 之后要重载终端。1.6.1 之前工作态的黄色 `?` 是 ZWNJ 的 bug，先升级。Muse 故意用文本标记 `◈`。宽栏里同一厂商的嵌套子行本来就没有图标。 |
+| 品牌图标是方框或 `?` | 字体没装上，或当前终端没有把 U+E1A0–U+E1B6 映射到 Herdr Agent Icons Max，或没有把独立的 U+E1B7 映射到 Herdr Agent MiMo——见 [让 Agent 装完整](#让-agent-装完整)。`configure` 之后要重载终端。1.6.1 之前工作态的黄色 `?` 是 ZWNJ 的 bug，先升级。Muse 故意用文本标记 `◈`。宽栏里同一厂商的嵌套子行本来就没有图标。 |
 | 缺少会话数据 | 运行 `herdr integration status`，对 `not installed` 或 `outdated` 的项执行 `herdr integration install <id>`，再重启对应 agent。Herdr 0.9.5 不再安装 Codex 的 turn hook，Codex 显示 outdated 时同样执行 `herdr integration install codex` |
 | Claude/Agy 缺少额度 | 发送一轮消息，让该会话的 StatusLine 产生观测 |
 | OMP 缺少额度 | 检查 `omp usage --json --redact --provider <id>` |
