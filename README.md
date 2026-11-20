@@ -130,7 +130,8 @@ Rules:
    omp (omp, ~/.omp), devin (devin, ~/.local/share/devin),
    muse (muse or muse-code, ~/.config/muse),
    cursor (cursor or cursor-agent, ~/.cursor),
-   kilo (kilo, ~/.local/share/kilo).
+   kilo (kilo, ~/.local/share/kilo),
+   mimo (mimo, ~/.local/share/mimocode).
    Print the list. If none, install all and say so.
 
 3. From the repo: git pull --ff-only if this is main and clean; then
@@ -142,16 +143,24 @@ Rules:
    - Wait for configure/refresh logs to succeed (invoke returns while running).
    - herdr integration status; for each detected agent that is "not installed"
      or "outdated", herdr integration install <id> (claude, codex, grok, opencode, pi, omp,
-     devin, cursor, kilo — not agy or muse). Skip CLIs the user does not have.
-   - Font: configure copies Herdr Agent Icons Max to ~/Library/Fonts (macOS) or
-     ~/.local/share/fonts (Linux) and maps Ghostty/kitty only if those configs
-     already exist. Linux: fc-cache that fonts dir. Detect THIS terminal
-     (TERM_PROGRAM / KITTY_WINDOW_ID / WEZTERM_EXECUTABLE). PUA U+E1A0–U+E1B6
-     needs an explicit map or the cell is a box or "?". Ghostty:
-     font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max" (and U+E1C0–U+E1C5),
+     devin, cursor, kilo — not agy, muse, or mimo). MiMo has no Herdr
+     integration; it is reported as a custom `mimo` agent (for example by
+     mimo-code-herdr). Skip CLIs the user does not have.
+   - Font: configure copies Herdr Agent Icons Max and the separate one-glyph
+     face Herdr Agent MiMo to ~/Library/Fonts (macOS) or ~/.local/share/fonts
+     (Linux) and maps Ghostty/kitty only if those configs already exist. Linux:
+     fc-cache that fonts dir. Detect THIS terminal (TERM_PROGRAM /
+     KITTY_WINDOW_ID / WEZTERM_EXECUTABLE). PUA U+E1A0–U+E1B6 and U+E1C0–U+E1C5
+     need an explicit map to Herdr Agent Icons Max, and U+E1B7 needs a
+     separate map to Herdr Agent MiMo (do not fold it into the Icons Max
+     range), or the cell is a box or "?". Ghostty:
+     font-codepoint-map = U+E1A0-U+E1B6="Herdr Agent Icons Max",
+     font-codepoint-map = U+E1B7="Herdr Agent MiMo", and
+     font-codepoint-map = U+E1C0-U+E1C5="Herdr Agent Icons Max",
      wrapped in "# BEGIN/END herdr-agent-usage font". kitty: symbol_map those
-     ranges to Herdr Agent Icons Max. WezTerm: add the family to font_with_fallback.
-     VS Code/Cursor: append it to terminal.integrated.fontFamily. Then reload
+     same ranges to the same families. WezTerm: add both families to
+     font_with_fallback. VS Code/Cursor: append both to
+     terminal.integrated.fontFamily. Then reload
      the terminal (Ghostty cmd+shift+,, kitty ctrl+shift+f5). Muse's mark is ◈
      on purpose. Nested extra tabs of the same vendor have no icon by design.
      Yellow "?" on 1.6.1+ is almost always an unmapped terminal; older builds
@@ -193,7 +202,7 @@ herdr plugin pane open --plugin herdr-agent-usage --entrypoint settings --focus
 | Pane titles | On (default) puts the scrolling terminal title on the topic line; off keeps the extracted topic. The tab name shares that line |
 | Agent order | Group by Space, least quota left first (default); by Space in tab order with one account's tabs together; or Herdr's own policy |
 | Low quota alert | Off or a threshold from 1% to 100% |
-| Agents | Claude, Codex, Grok, Agy, OpenCode, Pi, OMP, Devin, Muse, Cursor, Kilo |
+| Agents | Claude, Codex, Grok, Agy, OpenCode, Pi, OMP, Devin, Muse, Cursor, Kilo, MiMo |
 
 Use arrows or Space to edit, `a` to apply, and `q` to close.
 Installer options are also available through `./install.sh --help`.
@@ -227,6 +236,7 @@ normal quota percentage instead of guessing.
 | Pi | Canonical Codex quota | Only when the recorded account matches |
 | OMP | `omp usage --json --provider <id>` | Reported account matching the session's credential pin; one of several stored API keys, which omp reports without an identity, shows the pool (`1/2 keys usable · next 3h10m`) |
 | Kilo Code | Kilo Pass account state (`kiloPass.getState`); 30d | The OAuth gateway login in Kilo's `auth.json`, and only for a session whose backend is the Kilo Gateway; context from that session's messages and Kilo's model catalog |
+| MiMo Code | No official quota API; `cx` only (5h, 7d, and 30d stay empty) | Read-only `mimocode.db` (default `~/.local/share/mimocode/mimocode.db`); credential tables are never selected |
 
 An OpenCode pane that has not started a session yet shows the account's Go
 meters when a console login exists; the first resolved session replaces them
@@ -271,7 +281,7 @@ turn failures into zero usage.
 
 | Symptom | Check |
 | --- | --- |
-| Brand icons are boxes or `?` | The icon font is missing or this terminal has no U+E1A0–U+E1B6 map — see [Ask an agent to finish setup](#ask-an-agent-to-finish-setup). Reload the terminal after `configure`. A yellow `?` on a build older than 1.6.1 was the working-state ZWNJ bug; upgrade. Muse uses the text mark `◈` on purpose. Nested extra tabs of vendors other than Codex have no icon by design. |
+| Brand icons are boxes or `?` | The icon font is missing or this terminal has no U+E1A0–U+E1B6 map to Herdr Agent Icons Max, or no separate U+E1B7 map to Herdr Agent MiMo — see [Ask an agent to finish setup](#ask-an-agent-to-finish-setup). Reload the terminal after `configure`. A yellow `?` on a build older than 1.6.1 was the working-state ZWNJ bug; upgrade. Muse uses the text mark `◈` on purpose. Nested extra tabs of vendors other than Codex have no icon by design. |
 | Session data is missing | Run `herdr integration status`; install any line that says `not installed` or `outdated`, then restart that agent. Herdr 0.9.5 stops shipping Codex turn hooks, so an outdated Codex integration is updated the same way: `herdr integration install codex` |
 | Claude/Agy quota is missing | Send a turn so the session's StatusLine produces an observation |
 | OpenCode Go quota looks frozen | The console login is the source; without it the per-key endpoint is used, and a key that stopped serving traffic keeps its last reading. Sign in with `/connect` so a console login exists, then refresh |
